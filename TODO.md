@@ -22,9 +22,9 @@ What exists, what you must supply, and what is not built yet.
 - [ ] Message template and contact intro wording (`app/src/message.ts`). Confirm with an advocate.
 - [ ] Countdown length (`COUNTDOWN_SECONDS`, currently 10).
 - [ ] Should the duress PIN send a different message, or the same one with the flag (currently same plus a flag)?
-- [ ] What "PIN can cancel check-in" off should mean. Currently it makes an armed check-in impossible to cancel. The plan could also mean a grace period; confirm.
+- [ ] "PIN can cancel check-in" is a setting (Settings, Options). When off, an armed check-in cannot be cancelled. Confirm that is the behavior you want.
 - [ ] Whether contacts can reply (currently one-way, replies unmonitored).
-- [ ] `LICENSE` names R31 Holding LLC as holder; confirm the exact legal name, and have a lawyer review the license.
+- [ ] Have a lawyer review the license (holder: R31 Holdings LLC, confirmed).
 - [ ] Open questions in the planning doc for advocates (decoy believability, 911 behavior, court evidence format, trusted-person setup).
 
 ### Legal and store
