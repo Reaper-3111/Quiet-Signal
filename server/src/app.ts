@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import type { Dispatcher } from './dispatch.js';
+import { mountJournal } from './journal.js';
 import { mapPage } from './mapPage.js';
 import { renderMessage } from './message.js';
 import { sendSms, twilioSignature, type SmsProvider } from './sms.js';
@@ -75,6 +76,10 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
 
   app.use('/v1/alerts/*', auth);
   app.use('/v1/alerts', auth);
+
+  app.use('/v1/journal/*', auth);
+  app.use('/v1/journal', auth);
+  mountJournal(app, db, config.journalKey);
 
   async function auth(c: Context, next: () => Promise<void>) {
     const [id, secret] = (c.req.header('authorization')?.replace(/^Bearer /, '') ?? '').split('.');

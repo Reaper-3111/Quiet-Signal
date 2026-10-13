@@ -40,6 +40,15 @@ const SCHEMA = [
      payload text NOT NULL,
      state text NOT NULL DEFAULT 'armed'
    )`,
+  `CREATE TABLE IF NOT EXISTS journal (
+     id text PRIMARY KEY,
+     account_id text NOT NULL,
+     kind text NOT NULL,
+     alert_id text,
+     body text NOT NULL,
+     at timestamptz NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS journal_account ON journal (account_id)`,
   `CREATE INDEX IF NOT EXISTS alerts_map_token ON alerts (map_token)`,
   `CREATE INDEX IF NOT EXISTS points_alert ON points (alert_id)`,
   `CREATE INDEX IF NOT EXISTS recipients_alert ON recipients (alert_id)`,

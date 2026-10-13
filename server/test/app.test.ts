@@ -18,7 +18,7 @@ let db: Db;
 let app: ReturnType<typeof createApp>['app'];
 let sweep: ReturnType<typeof createApp>['sweep'];
 let auth: Record<string, string>;
-const config = { ...loadConfig(), publicUrl: 'https://a.test', twilio: { sid: 'AC1', token: 'tok', from: '+1' } };
+const config = { ...loadConfig(), journalKey: Buffer.alloc(32, 7).toString('base64'), publicUrl: 'https://a.test', twilio: { sid: 'AC1', token: 'tok', from: '+1' } };
 
 const call = (path: string, body?: unknown, headers: Record<string, string> = auth) =>
   app.request(path, {
@@ -148,6 +148,40 @@ describe('check-in timer', () => {
     await call('/v1/checkins', b);
     await call(`/v1/checkins/${b.id}/fire`, { duress: true });
     assert.match(sent[0].body, /forced to cancel/);
+  });
+});
+
+describe('evidence journal', () => {
+  it('stores entries encrypted and returns them to the owner only', async () => {
+    const id = randomUUID();
+    await call('/v1/journal', { id, kind: 'note', text: 'He took my phone again' });
+    await call('/v1/journal', { id, kind: 'note', text: 'duplicate ignored' });
+    const list: any[] = await (await call('/v1/journal')).json() as any;
+    assert.equal(list.filter((e) => e.id === id).length, 1);
+    assert.equal(list.find((e) => e.id === id).text, 'He took my phone again');
+    const raw = await db.query('SELECT body FROM journal WHERE id = $1', [id]);
+    assert.ok(!raw.rows[0].body.includes('phone'));
+    const other = await (await app.request('/v1/register', { method: 'POST' })).json() as any;
+    const theirs: any[] = await (await call('/v1/journal', undefined, { authorization: `Bearer ${other.token}` })).json() as any;
+    assert.equal(theirs.length, 0);
+  });
+
+  it('serves attachments and exports a PDF', async () => {
+    const id = randomUUID();
+    await call('/v1/journal', { id, kind: 'audio', data: Buffer.from('abc').toString('base64'), mime: 'audio/mp4' });
+    const data = await call(`/v1/journal/${id}/data`);
+    assert.equal(data.headers.get('content-type'), 'audio/mp4');
+    assert.equal(await data.text(), 'abc');
+    const pdf = await call('/v1/journal/export.pdf');
+    assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+    assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 4).toString(), '%PDF');
+  });
+
+  it('deletes entries', async () => {
+    const id = randomUUID();
+    await call('/v1/journal', { id, kind: 'note', text: 'x' });
+    await app.request(`/v1/journal/${id}`, { method: 'DELETE', headers: auth });
+    assert.equal((await db.query('SELECT 1 FROM journal WHERE id = $1', [id])).rows.length, 0);
   });
 });
 
