@@ -40,4 +40,4 @@ npx expo prebuild && npx expo run:ios   # needs a dev build; Expo Go cannot run 
 ```
 
 Open the real app from the decoy by tapping the temperature five times quickly, then entering the PIN.
-Deep links for widgets and shortcuts: `skyline://alert` (instant alert) and `skyline://hold` (hold screen).
+Deep links for shortcuts: `skyline://alert` (instant alert) and `skyline://hold` (hold screen).

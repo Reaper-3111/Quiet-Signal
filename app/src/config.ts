@@ -6,3 +6,6 @@ export const SERVERS = [process.env.EXPO_PUBLIC_API_PRIMARY, process.env.EXPO_PU
 export const SERVER_TIMEOUT_MS = 3000;
 export const COUNTDOWN_SECONDS = 10;
 export const DEFAULT_PLACE = { name: 'South Bend', lat: 41.6764, lng: -86.252 };
+
+// Shared with the iOS widget; must match ios.entitlements in app.json and targets/widget/Shared.swift.
+export const APP_GROUP = 'group.com.example.skyline';

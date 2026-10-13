@@ -119,6 +119,19 @@ describe('live location', () => {
   });
 });
 
+describe('quick alert from a saved profile', () => {
+  it('sends using the saved contacts and message', async () => {
+    assert.equal((await call('/v1/alerts/quick', { id: randomUUID() })).status, 404);
+    await app.request('/v1/profile', { method: 'PUT', headers: { 'content-type': 'application/json', ...auth },
+      body: JSON.stringify({ template: TEMPLATE, contacts: [contacts[0]], dispatch: false }) });
+    sent.length = 0;
+    const res = await call('/v1/alerts/quick', { id: randomUUID(), loc: { lat: 1, lng: 2, address: 'A St' } });
+    assert.equal(res.status, 200);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].body, /A St/);
+  });
+});
+
 describe('check-in timer', () => {
   const body = (dueAt: string) => ({ id: randomUUID(), dueAt, template: TEMPLATE, contacts: [contacts[0]], loc: { lat: 1, lng: 2 } });
 

@@ -12,8 +12,16 @@
       "supportsTablet": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["audio"]
-      }
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.example.skyline"
+        ]
+      },
+      "appleTeamId": "REPLACE_WITH_TEAM_ID"
     },
     "android": {
       "package": "com.example.skyline",
@@ -27,8 +35,18 @@
     },
     "plugins": [
       "expo-secure-store",
-      ["expo-audio", { "microphonePermission": "Skyline uses the microphone for voice notes." }],
-      ["expo-image-picker", { "cameraPermission": "Skyline uses the camera to attach photos to notes." }],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Skyline uses the microphone for voice notes."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Skyline uses the camera to attach photos to notes."
+        }
+      ],
       [
         "expo-location",
         {
@@ -37,6 +55,24 @@
           "isAndroidForegroundServiceEnabled": true,
           "locationAlwaysAndWhenInUsePermission": "Skyline uses your location to show local weather and keep forecasts current in the background.",
           "locationWhenInUsePermission": "Skyline uses your location to show local weather."
+        }
+      ],
+      "@bacons/apple-targets",
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "Weather",
+              "label": "Weather",
+              "description": "Local forecast",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "updatePeriodMillis": 1800000
+            }
+          ]
         }
       ]
     ]

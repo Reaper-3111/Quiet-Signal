@@ -31,6 +31,8 @@ const alertBody = z.object({
   dispatch: z.boolean().default(false),
   loc: loc.optional(),
 });
+const profileBody = alertBody.pick({ template: true, contacts: true, dispatch: true });
+const quickBody = z.object({ id: z.string().uuid(), loc: loc.optional() });
 const checkinBody = alertBody.omit({ kind: true, duress: true }).extend({ dueAt: z.string().datetime() });
 const pointsBody = z.object({
   points: z.array(z.object({ lat: loc.shape.lat, lng: loc.shape.lng, at: z.string().datetime().optional() })).min(1).max(50),
@@ -79,6 +81,7 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
 
   app.use('/v1/journal/*', auth);
   app.use('/v1/journal', auth);
+  app.use('/v1/profile', auth);
   mountJournal(app, db, config.journalKey);
 
   async function auth(c: Context, next: () => Promise<void>) {
@@ -153,6 +156,33 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
     const account = c.get('account');
     if (!sendLimit(account)) return bad(c, 'rate limited', 429);
     const result = await createAlert(account, parsed.data);
+    return result ? c.json(result) : bad(c, 'invalid body');
+  });
+
+  // Saved contacts and message, so a widget can fire an alert with only an id and a location.
+  // The app refreshes this whenever it is opened; stale profiles are purged with everything else.
+  app.put('/v1/profile', async (c) => {
+    const parsed = profileBody.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return bad(c, 'invalid body');
+    const { contacts, template, dispatch } = parsed.data;
+    await db.query('DELETE FROM profiles WHERE account_id = $1', [c.get('account')]);
+    await db.query('INSERT INTO profiles (account_id, contacts, template, dispatch) VALUES ($1, $2, $3, $4)',
+      [c.get('account'), JSON.stringify(contacts), template, dispatch]);
+    return c.body(null, 204);
+  });
+
+  app.post('/v1/alerts/quick', async (c) => {
+    const parsed = quickBody.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return bad(c, 'invalid body');
+    const account = c.get('account');
+    if (!sendLimit(account)) return bad(c, 'rate limited', 429);
+    const { rows } = await db.query<{ contacts: string; template: string; dispatch: boolean }>(
+      'SELECT contacts, template, dispatch FROM profiles WHERE account_id = $1', [account]);
+    if (!rows[0]) return bad(c, 'no profile', 404);
+    const result = await createAlert(account, {
+      id: parsed.data.id, kind: 'instant', duress: false, loc: parsed.data.loc,
+      contacts: JSON.parse(rows[0].contacts), template: rows[0].template, dispatch: rows[0].dispatch,
+    });
     return result ? c.json(result) : bad(c, 'invalid body');
   });
 
@@ -269,6 +299,7 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
 export async function purgeExpired(db: Db, days: number) {
   const cutoff = `now() - ($1 || ' days')::interval`;
   const old = `SELECT id FROM alerts WHERE created_at < ${cutoff}`;
+  await db.query(`DELETE FROM profiles WHERE updated_at < ${cutoff}`, [String(days)]);
   await db.query(`DELETE FROM checkins WHERE due_at < ${cutoff}`, [String(days)]);
   for (const t of ['recipients', 'points']) await db.query(`DELETE FROM ${t} WHERE alert_id IN (${old})`, [String(days)]);
   await db.query(`DELETE FROM alerts WHERE created_at < ${cutoff}`, [String(days)]);

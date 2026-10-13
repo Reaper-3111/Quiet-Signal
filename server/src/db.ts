@@ -48,6 +48,13 @@ const SCHEMA = [
      body text NOT NULL,
      at timestamptz NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS profiles (
+     account_id text PRIMARY KEY,
+     contacts text NOT NULL,
+     template text NOT NULL,
+     dispatch boolean NOT NULL DEFAULT false,
+     updated_at timestamptz NOT NULL DEFAULT now()
+   )`,
   `CREATE INDEX IF NOT EXISTS journal_account ON journal (account_id)`,
   `CREATE INDEX IF NOT EXISTS alerts_map_token ON alerts (map_token)`,
   `CREATE INDEX IF NOT EXISTS points_alert ON points (alert_id)`,

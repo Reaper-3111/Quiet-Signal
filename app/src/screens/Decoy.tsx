@@ -42,11 +42,18 @@ async function fetchForecast(): Promise<Forecast> {
 }
 
 /** A working weather screen. Five quick taps on the temperature call onSecret. */
-export function Decoy({ onSecret, footer }: { onSecret?: () => void; footer?: string }) {
+export function Decoy({ onSecret, footer, onForecast }: {
+  onSecret?: () => void; footer?: string; onForecast?: (f: { place: string; temp: string; summary: string }) => void;
+}) {
   const [f, setF] = useState<Forecast | null>(null);
   const taps = useRef<number[]>([]);
 
-  useEffect(() => { fetchForecast().then(setF).catch(() => {}); }, []);
+  useEffect(() => {
+    fetchForecast().then((d) => {
+      setF(d);
+      onForecast?.({ place: d.place, temp: `${d.temp}°`, summary: describe(d.code) });
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tapTemp = () => {
     const now = Date.now();

@@ -21,4 +21,7 @@ Use a launcher shortcut or a button-mapping app that opens the URL above. Power-
 
 ## Widgets
 
-`app/native/ios-widget/WeatherWidget.swift` has the iOS home and Lock Screen widget. It is source only until it is added as a Widget Extension target after `expo prebuild`.
+- **iPhone** (`app/targets/widget/`): home (small, medium) and Lock Screen widgets that look like a weather widget and show the real forecast. "Radar" (and the whole Lock Screen widget) sends the alert from the widget itself, so the app never opens. "Hourly" opens the hold screen. If no server answers, the alert waits in the shared App Group and the app sends it the next time it runs. Needs iOS 17. The app refreshes what the widget uses (servers, token, last location) whenever it is opened, so open it now and then.
+- **Android** (`app/src/widget/`): a 2x2 weather widget. "Radar" sends the alert in the background, "Hourly" opens the hold screen, the rest opens the app.
+
+Both are built by `npx expo prebuild`; no manual Xcode or Gradle steps.

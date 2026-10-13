@@ -58,4 +58,6 @@ export interface State {
   checkin?: Checkin;
   /** Safety plan checklist: item index -> done. */
   plan?: Record<number, boolean>;
+  /** Latest weather shown by the decoy, mirrored into the widgets. */
+  forecast?: { place: string; temp: string; summary: string };
 }

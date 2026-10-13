@@ -5,12 +5,14 @@ import { Accelerometer } from 'expo-sensors';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
-import { startRecording, stopRecording } from './src/audio';
+import { stopRecording } from './src/audio';
 import { armCheckin, cancelCheckin, fireAlert, fireCheckinDuress, flushQueue } from './src/alert';
 import { env, postJson } from './src/api';
 import { COUNTDOWN_SECONDS } from './src/config';
+import { isReal, sendAlert } from './src/fire';
 import { guard } from './src/guard';
 import { startLive, stopLive } from './src/location';
+import { drainWidgetQueue, syncWidgets } from './src/widgets';
 import { classify } from './src/pin';
 import { emptyState, load, update } from './src/storage';
 import { Checkin } from './src/screens/Checkin';
@@ -28,7 +30,6 @@ import { ui } from './src/theme';
 import type { AlertRecord, Kind, Settings, State } from './src/types';
 
 type Screen = 'decoy' | 'pin' | 'home' | 'hold' | 'countdown' | 'checkin' | 'status' | 'setup' | 'journal' | 'resources' | 'plan' | 'fakecall' | 'call';
-const isReal = (k: Kind) => k !== 'intro' && k !== 'test';
 const REAL: Screen[] = ['home', 'checkin', 'status', 'setup', 'journal', 'resources', 'plan', 'fakecall'];
 
 export default function App() {
@@ -44,19 +45,13 @@ export default function App() {
 
   const refresh = useCallback(() => load().then(setState), []);
 
-  // Sends silently. Live tracking starts once a server has the alert.
   const fire = useCallback(async (kind: Kind, duress = false) => {
-    const s = (await load()).settings;
-    if (!s.setupDone) return;
-    const out = await fireAlert(env, s, kind, duress);
-    if (out.via === 'server' && isReal(kind)) {
-      startLive().catch(() => {});
-      if (s.recordAudio) startRecording(out.id).catch(() => {});
-    }
+    await sendAlert(kind, duress);
     refresh();
   }, [refresh]);
 
   const retryQueue = useCallback(async () => {
+    await drainWidgetQueue();
     const done = await flushQueue(env, (await load()).alerts);
     if (done.some((d) => isReal(d.rec.payload.kind))) startLive().catch(() => {});
     if (done.length) refresh();
@@ -73,7 +68,7 @@ export default function App() {
 
   // Start-up, retry loop, and deep links from widgets and shortcuts.
   useEffect(() => {
-    refresh().then(retryQueue);
+    refresh().then(retryQueue).then(syncWidgets);
     const timer = setInterval(retryQueue, 30_000);
     const handle = ({ url }: { url: string }) => {
       const { hostname, path } = Linking.parse(url);
@@ -90,7 +85,7 @@ export default function App() {
   // A hold countdown that is interrupted sends instead of stalling.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') return retryQueue();
+      if (next === 'active') return retryQueue().then(syncWidgets);
       if (guard.systemDialog) return;
       if (screenRef.current === 'countdown') fire('hold');
       if (screenRef.current !== 'decoy') setScreen('decoy');
@@ -144,6 +139,7 @@ export default function App() {
     await refresh();
     if (intros) await fireAlert(env, s, 'intro');
     refresh();
+    syncWidgets();
   };
 
   const markSafe = async (a: AlertRecord) => {
@@ -207,7 +203,8 @@ export default function App() {
       case 'setup':
         return <Setup settings={settings} onSave={saveSettings} onTest={() => fire('test')} onDone={() => setScreen(settings.setupDone ? 'home' : 'decoy')} />;
       default:
-        return <Decoy onSecret={() => setScreen(settings.pin ? 'pin' : 'setup')} />;
+        return <Decoy onSecret={() => setScreen(settings.pin ? 'pin' : 'setup')}
+          onForecast={(f) => update((st) => { st.forecast = f; }).then(syncWidgets)} />;
     }
   };
 

@@ -17,6 +17,7 @@ What exists, what you must supply, and what is not built yet.
 - [ ] **Telnyx** (or swap in another provider in `server/src/sms.ts`): API key and number for the SMS fallback.
 - [ ] **Two hosting providers** (for example Linode and a second cloud), each with its own Postgres, TLS domain, and `PUBLIC_URL`. Put both URLs in `app/.env`.
 - [ ] **Noonlight** (or similar) if the 911 dispatch option ships: partnership terms, pricing, API token. `server/src/dispatch.ts` is a generic placeholder; replace the payload with the partner's real one. Dispatch partners also need a name and phone for the person, which conflicts with the minimal-data policy, so decide how to handle that.
+- [ ] **Apple team ID**: replace `REPLACE_WITH_TEAM_ID` in `app/app.json`. The App Group `group.com.example.skyline` (app.json, `app/targets/widget/Shared.swift`, `app/src/config.ts`) must be renamed with the bundle ID and enabled in the Apple Developer portal.
 - [ ] **Apple Developer** and **Google Play** accounts, final bundle ID / package name (currently `com.example.skyline`), EAS or local signing setup.
 - [ ] **Uptime monitoring** pinging `/health` on both servers every minute.
 
@@ -38,7 +39,7 @@ What exists, what you must supply, and what is not built yet.
 
 ## Not built yet
 
-- [ ] **Wire the iOS widget**: `app/native/ios-widget/WeatherWidget.swift` is written but untested and not in the Xcode project. It opens the app by URL, so a tap briefly opens the weather app; a true no-launch tap needs an App Intent that calls the server with a token shared through an App Group. Android widget not started.
+- [ ] **Test the widgets on devices.** iOS (Swift, `app/targets/widget/`) and Android (`app/src/widget/`) are written and generate correctly with `expo prebuild`, but the Swift has not been compiled and neither has run on a phone. Widgets use the last location the app saved, so it can be stale. The Android widget's preview image is not set.
 - [ ] **Shortcut triggers** (Back Tap, Action Button, Watch, Siri) are documented in `docs/triggers.md`; the in-app setup walkthrough screens are not built. Watch complication and Wear OS tile need native code.
 - [ ] **Selectable decoy icons** (alternate icons shipped with the app; needs native config).
 - [ ] **Remote wipe** from a web login (needs a web login design first).
@@ -56,6 +57,6 @@ What exists, what you must supply, and what is not built yet.
 - If the app is backgrounded during a hold countdown, the alert sends immediately rather than waiting.
 - Expo Go cannot run this app; it needs a development build for background location.
 - Abuse protection on the server is a per-instance in-memory rate limit. Add device attestation (App Attest / Play Integrity) before public launch so the SMS endpoint cannot be used to text arbitrary numbers.
-- Any app or web page can open `skyline://alert` and trigger an alert. Consider a per-install secret in the widget URL when the widget is built.
+- Any app or web page can open `skyline://alert` and trigger an alert. Consider a per-install secret in the URL.
 - PINs are 6 digits, salted and hashed, stored in the device keystore (not backed up or migrated). The server holds contact numbers and the trail for the retention window.
 - Device testing: nothing has run on a phone yet. Logic, types, and bundling are verified; the real-device flows (permissions, Messages composer, background location) need hands-on testing, per the plan's pilot phase.
