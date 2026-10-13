@@ -30,9 +30,11 @@ const alertBody = z.object({
   dispatch: z.boolean().default(false),
   loc: loc.optional(),
 });
+const checkinBody = alertBody.omit({ kind: true, duress: true }).extend({ dueAt: z.string().datetime() });
 const pointsBody = z.object({
   points: z.array(z.object({ lat: loc.shape.lat, lng: loc.shape.lng, at: z.string().datetime().optional() })).min(1).max(50),
 });
+const fireBody = z.object({ duress: z.boolean().default(false) });
 const safeBody = z.object({ message: z.string().min(1).max(300) });
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -50,6 +52,8 @@ function limiter(max: number, windowMs: number) {
     return ++h.n <= max;
   };
 }
+
+type AlertInput = z.infer<typeof alertBody>;
 
 export function createApp({ config, db, sms, dispatcher }: Deps) {
   const app = new Hono<{ Variables: { account: string } }>();
@@ -110,18 +114,13 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
     return rows;
   }
 
-  app.post('/v1/alerts', async (c) => {
-    const parsed = alertBody.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return bad(c, 'invalid body');
-    const a = parsed.data;
-    const account = c.get('account');
-    if (!sendLimit(account)) return bad(c, 'rate limited', 429);
-
+  /** Stores the alert (once) and texts every recipient that has not been texted yet. */
+  async function createAlert(account: string, a: AlertInput) {
     // Idempotent: the app may retry the same id from its queue.
     const { rows: existing } = await db.query<{ map_token: string; account_id: string }>(
       'SELECT map_token, account_id FROM alerts WHERE id = $1', [a.id]);
+    if (existing[0] && existing[0].account_id !== account) return null;
     let token = existing[0]?.map_token;
-    if (existing[0] && existing[0].account_id !== account) return bad(c, 'invalid body');
 
     if (!token) {
       token = randomBytes(16).toString('base64url');
@@ -140,8 +139,59 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
     if (a.dispatch && a.kind !== 'test' && a.kind !== 'intro' && dispatcher) {
       await dispatcher.alert({ alertId: a.id, loc: a.loc, message: text }).catch((e) => console.error('dispatch failed:', e.message));
     }
-    return c.json({ id: a.id, link, recipients: await recipientsOf(a.id) });
+    return { id: a.id, link, recipients: await recipientsOf(a.id) };
+  }
+
+  app.post('/v1/alerts', async (c) => {
+    const parsed = alertBody.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return bad(c, 'invalid body');
+    const account = c.get('account');
+    if (!sendLimit(account)) return bad(c, 'rate limited', 429);
+    const result = await createAlert(account, parsed.data);
+    return result ? c.json(result) : bad(c, 'invalid body');
   });
+
+  // Dead-man check-in: the server holds the alert and fires it unless cancelled in time.
+  app.use('/v1/checkins/*', auth);
+  app.use('/v1/checkins', auth);
+
+  app.post('/v1/checkins', async (c) => {
+    const parsed = checkinBody.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return bad(c, 'invalid body');
+    const { id, dueAt, ...payload } = parsed.data;
+    await db.query(
+      `INSERT INTO checkins (id, account_id, due_at, payload) VALUES ($1, $2, $3, $4)`,
+      [id, c.get('account'), dueAt, JSON.stringify(payload)]);
+    return c.json({ id });
+  });
+
+  app.post('/v1/checkins/:id/cancel', async (c) => {
+    await db.query(`UPDATE checkins SET state = 'cancelled' WHERE id = $1 AND account_id = $2 AND state = 'armed'`,
+      [c.req.param('id'), c.get('account')]);
+    return c.body(null, 204);
+  });
+
+  app.post('/v1/checkins/:id/fire', async (c) => {
+    const parsed = fireBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return bad(c, 'invalid body');
+    const fired = await fireCheckin(c.req.param('id'), c.get('account'), parsed.data.duress);
+    return fired ? c.json(fired) : bad(c, 'not found', 404);
+  });
+
+  async function fireCheckin(id: string, account?: string, duress = false) {
+    const { rows } = await db.query<{ account_id: string; payload: string }>(
+      `UPDATE checkins SET state = 'fired' WHERE id = $1 AND state = 'armed' ${account ? 'AND account_id = $2' : ''}
+       RETURNING account_id, payload`, account ? [id, account] : [id]);
+    if (!rows[0]) return null;
+    const payload = JSON.parse(rows[0].payload);
+    return createAlert(rows[0].account_id, { ...payload, id, kind: 'checkin', duress });
+  }
+
+  /** Fires every armed check-in that has come due. Run on an interval. */
+  async function sweep() {
+    const { rows } = await db.query<{ id: string }>(`SELECT id FROM checkins WHERE state = 'armed' AND due_at <= now()`);
+    for (const { id } of rows) await fireCheckin(id).catch((e) => console.error('checkin failed:', e.message));
+  }
 
   app.post('/v1/alerts/:id/points', async (c) => {
     const parsed = pointsBody.safeParse(await c.req.json().catch(() => null));
@@ -207,13 +257,14 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
     return c.body(null, 204);
   });
 
-  return app;
+  return { app, sweep };
 }
 
 /** Deletes alerts, trails and recipients older than the retention window. */
 export async function purgeExpired(db: Db, days: number) {
   const cutoff = `now() - ($1 || ' days')::interval`;
   const old = `SELECT id FROM alerts WHERE created_at < ${cutoff}`;
+  await db.query(`DELETE FROM checkins WHERE due_at < ${cutoff}`, [String(days)]);
   for (const t of ['recipients', 'points']) await db.query(`DELETE FROM ${t} WHERE alert_id IN (${old})`, [String(days)]);
   await db.query(`DELETE FROM alerts WHERE created_at < ${cutoff}`, [String(days)]);
 }

@@ -15,7 +15,8 @@ const TEMPLATE = 'Alert from Sam. Location: {address} ({coords}). Map: {link}';
 const contacts = ['+15551230001', '+15551230002'];
 
 let db: Db;
-let app: ReturnType<typeof createApp>;
+let app: ReturnType<typeof createApp>['app'];
+let sweep: ReturnType<typeof createApp>['sweep'];
 let auth: Record<string, string>;
 const config = { ...loadConfig(), publicUrl: 'https://a.test', twilio: { sid: 'AC1', token: 'tok', from: '+1' } };
 
@@ -29,7 +30,7 @@ const call = (path: string, body?: unknown, headers: Record<string, string> = au
 before(async () => {
   db = new (newDb().adapters.createPg().Pool)() as unknown as Db;
   await migrate(db);
-  app = createApp({ config, db, sms: [broken, ok], dispatcher: null });
+  ({ app, sweep } = createApp({ config, db, sms: [broken, ok], dispatcher: null }));
   const res = await app.request('/v1/register', { method: 'POST' });
   auth = { authorization: `Bearer ${((await res.json()) as any).token}` };
 });
@@ -72,7 +73,7 @@ describe('alerts', () => {
   });
 
   it('records failed sends so the status screen can show them', async () => {
-    const failing = createApp({ config, db, sms: [broken], dispatcher: null });
+    const { app: failing } = createApp({ config, db, sms: [broken], dispatcher: null });
     const res = await failing.request('/v1/alerts', {
       method: 'POST', headers: { 'content-type': 'application/json', ...auth },
       body: JSON.stringify({ id: randomUUID(), kind: 'instant', template: TEMPLATE, contacts: [contacts[0]] }),
@@ -115,6 +116,38 @@ describe('live location', () => {
     await call('/v1/alerts', { id, kind: 'instant', template: TEMPLATE, contacts: [contacts[0]] });
     const res = await call(`/v1/alerts/${id}`, undefined, { authorization: `Bearer ${other.token}` });
     assert.equal(res.status, 404);
+  });
+});
+
+describe('check-in timer', () => {
+  const body = (dueAt: string) => ({ id: randomUUID(), dueAt, template: TEMPLATE, contacts: [contacts[0]], loc: { lat: 1, lng: 2 } });
+
+  it('fires once the deadline passes without a cancel', async () => {
+    sent.length = 0;
+    const b = body(new Date(Date.now() - 1000).toISOString());
+    await call('/v1/checkins', b);
+    await sweep();
+    await sweep();
+    assert.equal(sent.length, 1);
+    assert.equal(((await (await call(`/v1/alerts/${b.id}`)).json()) as any).kind, 'checkin');
+  });
+
+  it('does not fire when cancelled or not yet due', async () => {
+    sent.length = 0;
+    const cancelled = body(new Date(Date.now() - 1000).toISOString());
+    await call('/v1/checkins', cancelled);
+    await call(`/v1/checkins/${cancelled.id}/cancel`, {});
+    await call('/v1/checkins', body(new Date(Date.now() + 3_600_000).toISOString()));
+    await sweep();
+    assert.equal(sent.length, 0);
+  });
+
+  it('fires immediately with the duress flag', async () => {
+    sent.length = 0;
+    const b = body(new Date(Date.now() + 3_600_000).toISOString());
+    await call('/v1/checkins', b);
+    await call(`/v1/checkins/${b.id}/fire`, { duress: true });
+    assert.match(sent[0].body, /forced to cancel/);
   });
 });
 

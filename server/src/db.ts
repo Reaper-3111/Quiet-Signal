@@ -33,6 +33,13 @@ const SCHEMA = [
      lng double precision NOT NULL,
      at timestamptz NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS checkins (
+     id text PRIMARY KEY,
+     account_id text NOT NULL,
+     due_at timestamptz NOT NULL,
+     payload text NOT NULL,
+     state text NOT NULL DEFAULT 'armed'
+   )`,
   `CREATE INDEX IF NOT EXISTS alerts_map_token ON alerts (map_token)`,
   `CREATE INDEX IF NOT EXISTS points_alert ON points (alert_id)`,
   `CREATE INDEX IF NOT EXISTS recipients_alert ON recipients (alert_id)`,

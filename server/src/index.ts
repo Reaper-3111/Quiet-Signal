@@ -12,9 +12,11 @@ await migrate(db);
 const sms = buildProviders(config);
 if (!sms.length) console.warn('No SMS provider configured; alerts will be recorded but not delivered.');
 
-const app = createApp({ config, db, sms, dispatcher: buildDispatcher(config.dispatch) });
+const { app, sweep } = createApp({ config, db, sms, dispatcher: buildDispatcher(config.dispatch) });
 serve({ fetch: app.fetch, port: config.port }, ({ port }) => console.log(`listening on ${port}`));
 
 const purge = () => purgeExpired(db, config.retentionDays).catch((e) => console.error('purge failed:', e.message));
 purge();
 setInterval(purge, 3_600_000);
+
+setInterval(() => sweep().catch((e) => console.error('sweep failed:', e.message)), 30_000);
