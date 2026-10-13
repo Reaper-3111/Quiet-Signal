@@ -5,11 +5,14 @@ What exists, what you must supply, and what is not built yet.
 ## Built
 
 - **Server** (`server/`): alert intake, SMS fan-out with Twilio then Telnyx fallback, idempotent retries, delivery receipts, live-map page and location trail, "I'm safe" follow-up, server-held check-in timer, 30 day purge, Dockerfile, tests.
+- **Evidence journal**: encrypted notes, photos, and audio on the server (AES-256-GCM, key in `JOURNAL_KEY`), dated PDF export, kept until deleted.
+- **Also built**: audio recording on alert (opt-in, 30 second chunks uploaded to the journal), fake call (rings only while the app is open), resources screen, safety plan checklist, daily end-to-end test script, trigger guide.
 - **Phone app** (`app/`): weather decoy with hidden entry (5 taps on the temperature, then PIN), setup (PIN, duress PIN, contacts, message, options, intro texts, test alert), instant alert, hold button with 10 second countdown, duress PIN, per-feature PIN-cancel toggle, location with reverse geocoding, full fallback chain (server A, server B, prefilled Messages, dialer), local queue with retry, hidden status screen, "I'm safe", check-in timer, live location stream, shake quick exit, decoy on backgrounding, screenshot/recents blocking, deep links `skyline://alert` and `skyline://hold`.
 
 ## You must supply
 
 ### Accounts and credentials (all go in env vars; see the two `.env.example` files)
+- [ ] **Journal key**: generate with `openssl rand -base64 32` and set `JOURNAL_KEY` on the primary server. Back it up; losing it makes journal entries unreadable.
 - [ ] **Twilio**: account SID, auth token, a dedicated sending number. For US texting, register the brand and campaign (A2P 10DLC) or messages get filtered. Set the status callback to `PUBLIC_URL/hooks/twilio` (the server sets it per message).
 - [ ] **Telnyx** (or swap in another provider in `server/src/sms.ts`): API key and number for the SMS fallback.
 - [ ] **Two hosting providers** (for example Linode and a second cloud), each with its own Postgres, TLS domain, and `PUBLIC_URL`. Put both URLs in `app/.env`.
@@ -35,20 +38,17 @@ What exists, what you must supply, and what is not built yet.
 
 ## Not built yet
 
-From the planning doc, phases 4 to 6 and monitoring:
-
-- [ ] **iOS home and Lock Screen widgets** (Swift/WidgetKit): disguised weather widget with two tap areas that open `skyline://alert` and `skyline://hold`. Android widget equivalent.
-- [ ] **Back Tap, Action Button, Siri, Apple Watch, Wear OS tile**: Shortcuts that open `skyline://alert`; setup walkthrough screens for each.
-- [ ] **Selectable decoy icons** (alternate icons shipped with the app).
-- [ ] **Evidence journal** (encrypted notes, photos, memos on the server, PDF export). Server tables and endpoints do not exist yet.
-- [ ] **Audio recording on alert**, with the one-line recording-consent warning.
-- [ ] **Fake incoming call**, **resources screen**, **safety plan checklist**.
-- [ ] **Remote wipe** from a web login.
+- [ ] **Wire the iOS widget**: `app/native/ios-widget/WeatherWidget.swift` is written but untested and not in the Xcode project. It opens the app by URL, so a tap briefly opens the weather app; a true no-launch tap needs an App Intent that calls the server with a token shared through an App Group. Android widget not started.
+- [ ] **Shortcut triggers** (Back Tap, Action Button, Watch, Siri) are documented in `docs/triggers.md`; the in-app setup walkthrough screens are not built. Watch complication and Wear OS tile need native code.
+- [ ] **Selectable decoy icons** (alternate icons shipped with the app; needs native config).
+- [ ] **Remote wipe** from a web login (needs a web login design first).
 - [ ] **Agency branding** for licensed versions.
-- [ ] **Daily end-to-end test alert** to a test number, with failure notification.
+- [ ] **Run the daily test on a schedule** (`npm run daily-test` in `server/`; needs a cron or CI job, a test number, and a failure webhook) and **uptime monitoring** on `/health`.
 - [ ] **OS-level background retry** of the queue (currently retries on app open and every 30 seconds while the app runs). Add `expo-background-task`.
 - [ ] Optional confirmation cue (weather icon flip or vibration) the plan describes; default is nothing visible.
-- [ ] Android phones without Messages app fall straight to the dialer; test on real devices.
+- [ ] **Local resources**: add shelters, courts, and advocates to `app/src/resources.ts` (`LOCAL`). Only national numbers are included.
+- [ ] Journal lives on the first server only, so it is not covered by the second-server fallback. Decide whether to replicate it.
+- [ ] Verify `expo-audio` background recording on a real iPhone; Apple will ask about background audio in review.
 
 ## Known limits to review
 

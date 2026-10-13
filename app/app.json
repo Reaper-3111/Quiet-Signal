@@ -11,7 +11,8 @@
       "bundleIdentifier": "com.example.skyline",
       "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
@@ -26,6 +27,8 @@
     },
     "plugins": [
       "expo-secure-store",
+      ["expo-audio", { "microphonePermission": "Skyline uses the microphone for voice notes." }],
+      ["expo-image-picker", { "cameraPermission": "Skyline uses the camera to attach photos to notes." }],
       [
         "expo-location",
         {

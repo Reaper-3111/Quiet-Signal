@@ -5,6 +5,7 @@ import { Accelerometer } from 'expo-sensors';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
+import { startRecording, stopRecording } from './src/audio';
 import { armCheckin, cancelCheckin, fireAlert, fireCheckinDuress, flushQueue } from './src/alert';
 import { env, postJson } from './src/api';
 import { COUNTDOWN_SECONDS } from './src/config';
@@ -14,6 +15,10 @@ import { classify } from './src/pin';
 import { emptyState, load, update } from './src/storage';
 import { Checkin } from './src/screens/Checkin';
 import { Decoy } from './src/screens/Decoy';
+import { FakeCallSetup, IncomingCall } from './src/screens/FakeCall';
+import { Journal } from './src/screens/Journal';
+import { Resources } from './src/screens/Resources';
+import { SafetyPlan } from './src/screens/SafetyPlan';
 import { Hold } from './src/screens/Hold';
 import { Home } from './src/screens/Home';
 import { PinPad } from './src/screens/PinPad';
@@ -22,15 +27,16 @@ import { Status } from './src/screens/Status';
 import { ui } from './src/theme';
 import type { AlertRecord, Kind, Settings, State } from './src/types';
 
-type Screen = 'decoy' | 'pin' | 'home' | 'hold' | 'countdown' | 'checkin' | 'status' | 'setup';
+type Screen = 'decoy' | 'pin' | 'home' | 'hold' | 'countdown' | 'checkin' | 'status' | 'setup' | 'journal' | 'resources' | 'plan' | 'fakecall' | 'call';
 const isReal = (k: Kind) => k !== 'intro' && k !== 'test';
-const REAL: Screen[] = ['home', 'checkin', 'status', 'setup'];
+const REAL: Screen[] = ['home', 'checkin', 'status', 'setup', 'journal', 'resources', 'plan', 'fakecall'];
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('decoy');
   const [state, setState] = useState<State>(emptyState());
   const [left, setLeft] = useState(COUNTDOWN_SECONDS);
   const [holdFromHome, setHoldFromHome] = useState(false); // widget launches must not reach real mode via Back
+  const [fake, setFake] = useState<{ at: number; caller: string }>();
   const strikes = useRef(0);
   const screenRef = useRef(screen);
   screenRef.current = screen;
@@ -43,7 +49,10 @@ export default function App() {
     const s = (await load()).settings;
     if (!s.setupDone) return;
     const out = await fireAlert(env, s, kind, duress);
-    if (out.via === 'server' && isReal(kind)) startLive().catch(() => {});
+    if (out.via === 'server' && isReal(kind)) {
+      startLive().catch(() => {});
+      if (s.recordAudio) startRecording(out.id).catch(() => {});
+    }
     refresh();
   }, [refresh]);
 
@@ -52,6 +61,13 @@ export default function App() {
     if (done.some((d) => isReal(d.rec.payload.kind))) startLive().catch(() => {});
     if (done.length) refresh();
   }, [refresh]);
+
+  // Fake call: rings only while the app stays open, since notifications are never used.
+  useEffect(() => {
+    if (!fake) return;
+    const t = setTimeout(() => setScreen('call'), Math.max(0, fake.at - Date.now()));
+    return () => clearTimeout(t);
+  }, [fake]);
 
   const exit = useCallback(() => setScreen('decoy'), []);
 
@@ -136,6 +152,7 @@ export default function App() {
     else if (await SMS.isAvailableAsync()) await SMS.sendSMSAsync(a.payload.contacts, message);
     await update((s) => { const r = s.alerts.find((x) => x.id === a.id); if (r) r.safe = true; });
     await stopLive();
+    stopRecording();
     refresh();
   };
 
@@ -176,6 +193,17 @@ export default function App() {
         );
       case 'status':
         return <Status alerts={state.alerts} settings={settings} onSafe={markSafe} onBack={() => setScreen('home')} />;
+      case 'journal':
+        return <Journal onBack={() => setScreen('home')} />;
+      case 'resources':
+        return <Resources onBack={() => setScreen('home')} />;
+      case 'plan':
+        return <SafetyPlan done={state.plan ?? {}} onBack={() => setScreen('home')}
+          onToggle={(i, v) => update((s) => { s.plan = { ...s.plan, [i]: v }; }).then(setState)} />;
+      case 'fakecall':
+        return <FakeCallSetup scheduled={fake} onBack={() => setScreen('home')} onSchedule={(min, caller) => setFake({ at: Date.now() + min * 60_000, caller })} />;
+      case 'call':
+        return <IncomingCall caller={fake?.caller ?? 'Mom'} onEnd={() => { setFake(undefined); exit(); }} />;
       case 'setup':
         return <Setup settings={settings} onSave={saveSettings} onTest={() => fire('test')} onDone={() => setScreen(settings.setupDone ? 'home' : 'decoy')} />;
       default:

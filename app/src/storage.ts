@@ -9,7 +9,7 @@ const OPTIONS = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY
 export const emptyState = (): State => ({
   settings: {
     setupDone: false, name: '', template: defaultTemplate(''), contacts: [],
-    cancelHold: true, cancelCheckin: true, call911: 'off', tokens: {},
+    cancelHold: true, cancelCheckin: true, recordAudio: false, call911: 'off', tokens: {},
   },
   alerts: [],
 });

@@ -115,6 +115,8 @@ export function Setup({ settings, onSave, onTest, onDone }: Props) {
           <Text style={ui.p}>With cancel off, releasing the hold button sends immediately and nothing can stop it. That means more false alarms and no take-backs, but nobody can force you to cancel.</Text>
           <View style={ui.row}><Text style={{ color: colors.text }}>PIN can cancel hold button</Text><Switch value={draft.cancelHold} onValueChange={(v) => patch({ cancelHold: v })} /></View>
           <View style={ui.row}><Text style={{ color: colors.text }}>PIN can cancel check-in timer</Text><Switch value={draft.cancelCheckin} onValueChange={(v) => patch({ cancelCheckin: v })} /></View>
+          <View style={ui.row}><Text style={{ color: colors.text }}>Record audio during an alert</Text><Switch value={draft.recordAudio} onValueChange={(v) => patch({ recordAudio: v })} /></View>
+          {draft.recordAudio ? <Text style={ui.p}>Some states require everyone's consent to record a conversation. You decide whether to use this. Audio is uploaded and not kept on the phone.</Text> : null}
           <Text style={ui.label}>911</Text>
           <Text style={ui.p}>Off: contacts are texted only. Dialer: the phone dialer opens with 911 entered; you tap to call. Dispatch: a dispatch center calls 911 for you.</Text>
           {(['off', 'dialer', 'dispatch'] as const).map((o) => (

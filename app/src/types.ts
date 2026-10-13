@@ -20,6 +20,7 @@ export interface Settings {
   duress?: Hashed;
   cancelHold: boolean;
   cancelCheckin: boolean;
+  recordAudio: boolean;
   call911: 'off' | 'dialer' | 'dispatch';
   /** Server base URL -> bearer token. */
   tokens: Record<string, string>;
@@ -55,4 +56,6 @@ export interface State {
   settings: Settings;
   alerts: AlertRecord[];
   checkin?: Checkin;
+  /** Safety plan checklist: item index -> done. */
+  plan?: Record<number, boolean>;
 }
