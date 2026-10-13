@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Skyline",
+    "slug": "skyline-weather",
+    "scheme": "skyline",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "bundleIdentifier": "com.example.skyline",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.example.skyline",
+      "allowBackup": false,
+      "adaptiveIcon": {
+        "backgroundColor": "#2c6fb7",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "locationAlwaysAndWhenInUsePermission": "Skyline uses your location to show local weather and keep forecasts current in the background.",
+          "locationWhenInUsePermission": "Skyline uses your location to show local weather."
+        }
+      ]
+    ]
+  }
+}
