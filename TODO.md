@@ -24,7 +24,7 @@ What exists, what you must supply, and what is not built yet.
 - [ ] Should the duress PIN send a different message, or the same one with the flag (currently same plus a flag)?
 - [ ] What "PIN can cancel check-in" off should mean. Currently it makes an armed check-in impossible to cancel. The plan could also mean a grace period; confirm.
 - [ ] Whether contacts can reply (currently one-way, replies unmonitored).
-- [ ] Copyright holder on `LICENSE` is Jeremy Bontrager; change it if R31 Holdings LLC should hold it, and have a lawyer review the license.
+- [ ] `LICENSE` names R31 Holdings LLC as holder; confirm the exact legal name (your message said "R31 Holding LLC"), and have a lawyer review the license.
 - [ ] Open questions in the planning doc for advocates (decoy believability, 911 behavior, court evidence format, trusted-person setup).
 
 ### Legal and store
