@@ -23,7 +23,9 @@ export async function syncWidgets() {
       await postJson(url, '/v1/profile', token, {
         contacts: settings.contacts, template: settings.template, dispatch: settings.call911 === 'dispatch',
       }, 3000, 'PUT');
-      servers.push({ url, token });
+      // The widget gets its own token that can only send the saved alert, not read anything.
+      const quick = await postJson(url, '/v1/quick-token', token, {}, 3000);
+      servers.push({ url, token: quick.token });
     } catch {
       // This server will be missing from the widget until the next sync.
     }

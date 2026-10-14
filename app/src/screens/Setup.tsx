@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import { useState } from 'react';
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { DISPATCH_ENABLED } from '../config';
 import { guard } from '../guard';
 import { defaultTemplate, normalizePhone } from '../message';
 import { hashPin } from '../pin';
@@ -11,6 +12,7 @@ import { PinPad } from './PinPad';
 type Step = 'welcome' | 'pin' | 'pin2' | 'duress' | 'duress2' | 'contacts' | 'message' | 'options' | 'finish';
 const FIRST_RUN: Step[] = ['welcome', 'pin', 'pin2', 'duress', 'duress2', 'contacts', 'message', 'options', 'finish'];
 const EDIT: Step[] = ['contacts', 'message', 'options', 'finish'];
+const CHANGE_PINS: Step[] = ['pin', 'pin2', 'duress', 'duress2', 'finish'];
 
 interface Props {
   settings: Settings;
@@ -20,7 +22,7 @@ interface Props {
 }
 
 export function Setup({ settings, onSave, onTest, onDone }: Props) {
-  const steps = settings.setupDone ? EDIT : FIRST_RUN;
+  const [steps, setSteps] = useState<Step[]>(settings.setupDone ? EDIT : FIRST_RUN);
   const [i, setI] = useState(0);
   const [draft, setDraft] = useState<Settings>(settings);
   const [pins, setPins] = useState({ pin: '', duress: '' });
@@ -117,9 +119,14 @@ export function Setup({ settings, onSave, onTest, onDone }: Props) {
           <View style={ui.row}><Text style={{ color: colors.text }}>PIN can cancel check-in timer</Text><Switch value={draft.cancelCheckin} onValueChange={(v) => patch({ cancelCheckin: v })} /></View>
           <View style={ui.row}><Text style={{ color: colors.text }}>Record audio during an alert</Text><Switch value={draft.recordAudio} onValueChange={(v) => patch({ recordAudio: v })} /></View>
           {draft.recordAudio ? <Text style={ui.p}>Some states require everyone's consent to record a conversation. You decide whether to use this. Audio is uploaded and not kept on the phone.</Text> : null}
+          {settings.setupDone ? (
+            <Pressable style={[ui.btn, ui.btnAlt]} onPress={() => { setSteps(CHANGE_PINS); setI(0); }}>
+              <Text style={ui.btnText}>Change PIN and duress PIN</Text>
+            </Pressable>
+          ) : null}
           <Text style={ui.label}>911</Text>
-          <Text style={ui.p}>Off: contacts are texted only. Dialer: the phone dialer opens with 911 entered; you tap to call. Dispatch: a dispatch center calls 911 for you.</Text>
-          {(['off', 'dialer', 'dispatch'] as const).map((o) => (
+          <Text style={ui.p}>Off: contacts are texted only. Dialer: the phone dialer opens with 911 entered; you tap to call. {DISPATCH_ENABLED ? 'Dispatch: a dispatch center calls 911 for you.' : ''}</Text>
+          {(DISPATCH_ENABLED ? (['off', 'dialer', 'dispatch'] as const) : (['off', 'dialer'] as const)).map((o) => (
             <Pressable key={o} style={[ui.btn, draft.call911 === o ? null : ui.btnAlt, { marginTop: 6, padding: 12 }]} onPress={() => patch({ call911: o })}>
               <Text style={ui.btnText}>{o[0].toUpperCase() + o.slice(1)}</Text>
             </Pressable>

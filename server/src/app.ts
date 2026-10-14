@@ -1,4 +1,6 @@
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { Config } from './config.js';
@@ -47,6 +49,7 @@ function limiter(max: number, windowMs: number) {
   const hits = new Map<string, { n: number; reset: number }>();
   return (key: string) => {
     const now = Date.now();
+    if (hits.size > 10_000) for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
     const h = hits.get(key);
     if (!h || h.reset < now) {
       hits.set(key, { n: 1, reset: now + windowMs });
@@ -62,14 +65,25 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
   const app = new Hono<{ Variables: { account: string } }>();
   const registerLimit = limiter(10, 3_600_000);
   const sendLimit = limiter(20, 3_600_000);
+  const safeLimit = limiter(10, 3_600_000);
+  const introLimit = limiter(5, 86_400_000);
+  const tooLarge = (c: Context) => c.json({ error: 'too large' }, 413);
+  const small = bodyLimit({ maxSize: 65_536, onError: tooLarge });
+  const large = bodyLimit({ maxSize: 8_000_000, onError: tooLarge });
+  app.use('*', (c, next) => (c.req.path.startsWith('/v1/journal') ? large : small)(c, next));
+
+  /** The caller's address. X-Forwarded-For is only believed behind a proxy we control, and only its last hop. */
+  const clientIp = (c: Context) => {
+    if (config.trustProxy) return c.req.header('x-forwarded-for')?.split(',').pop()?.trim() || 'local';
+    try { return getConnInfo(c).remote.address ?? 'local'; } catch { return 'local'; }
+  };
 
   const bad = (c: Context, msg: string, status: 400 | 404 | 429 = 400) => c.json({ error: msg }, status);
 
   app.get('/health', (c) => c.json({ ok: true }));
 
   app.post('/v1/register', async (c) => {
-    const ip = c.req.header('x-forwarded-for')?.split(',')[0] ?? 'local';
-    if (!registerLimit(ip)) return bad(c, 'rate limited', 429);
+    if (!registerLimit(clientIp(c))) return bad(c, 'rate limited', 429);
     const id = randomUUID();
     const secret = randomBytes(24).toString('base64url');
     await db.query('INSERT INTO accounts (id, secret_hash) VALUES ($1, $2)', [id, hash(secret)]);
@@ -82,14 +96,17 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
   app.use('/v1/journal/*', auth);
   app.use('/v1/journal', auth);
   app.use('/v1/profile', auth);
+  app.use('/v1/quick-token', auth);
   mountJournal(app, db, config.journalKey);
 
   async function auth(c: Context, next: () => Promise<void>) {
     const [id, secret] = (c.req.header('authorization')?.replace(/^Bearer /, '') ?? '').split('.');
     if (id && secret) {
-      const { rows } = await db.query<{ secret_hash: string }>('SELECT secret_hash FROM accounts WHERE id = $1', [id]);
+      // The widget's token only works on /v1/alerts/quick; the main token never does.
+      const col = c.req.path === '/v1/alerts/quick' ? 'quick_hash' : 'secret_hash';
+      const { rows } = await db.query<Record<string, string | null>>(`SELECT ${col} FROM accounts WHERE id = $1`, [id]);
       const a = Buffer.from(hash(secret));
-      const b = Buffer.from(rows[0]?.secret_hash ?? '');
+      const b = Buffer.from(rows[0]?.[col] ?? '');
       if (a.length === b.length && timingSafeEqual(a, b)) {
         c.set('account' as never, id as never);
         return next();
@@ -98,27 +115,26 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
-  /** Sends to every recipient still pending and records the outcome. */
-  async function fanOut(alertId: string, body: string) {
+  /** Sends to every recipient still pending (the alert text, or the "I'm safe" follow-up) and records the outcome. */
+  async function fanOut(alertId: string, body: string, safe = false) {
+    const [status, pid] = safe ? ['safe_status', 'safe_id'] : ['status', 'provider_id'];
     const { rows } = await db.query<{ phone: string }>(
-      `SELECT phone FROM recipients WHERE alert_id = $1 AND status = 'pending'`, [alertId]);
+      `SELECT phone FROM recipients WHERE alert_id = $1 AND ${status} = 'pending'`, [alertId]);
     await Promise.all(rows.map(async ({ phone }) => {
       try {
         const r = await sendSms(sms, phone, body);
         await db.query(
-          `UPDATE recipients SET status = 'sent', provider_id = $1, updated_at = now() WHERE alert_id = $2 AND phone = $3`,
+          `UPDATE recipients SET ${status} = 'sent', ${pid} = $1, updated_at = now() WHERE alert_id = $2 AND phone = $3`,
           [r.id, alertId, phone]);
       } catch {
-        await db.query(
-          `UPDATE recipients SET status = 'failed', updated_at = now() WHERE alert_id = $1 AND phone = $2`,
-          [alertId, phone]);
+        await db.query(`UPDATE recipients SET ${status} = 'failed', updated_at = now() WHERE alert_id = $1 AND phone = $2`, [alertId, phone]);
       }
     }));
   }
 
   async function recipientsOf(alertId: string) {
-    const { rows } = await db.query<{ phone: string; status: string }>(
-      'SELECT phone, status FROM recipients WHERE alert_id = $1', [alertId]);
+    const { rows } = await db.query<{ phone: string; status: string; safe_status: string }>(
+      'SELECT phone, status, safe_status FROM recipients WHERE alert_id = $1', [alertId]);
     return rows;
   }
 
@@ -144,6 +160,7 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
     const text = renderMessage({ template: a.template, kind: a.kind, duress: a.duress, loc: a.loc, link });
     await fanOut(a.id, text);
 
+    if (a.dispatch && a.kind !== 'test' && a.kind !== 'intro' && !dispatcher) console.error('dispatch requested but not configured');
     if (a.dispatch && a.kind !== 'test' && a.kind !== 'intro' && dispatcher) {
       await dispatcher.alert({ alertId: a.id, loc: a.loc, message: text }).catch((e) => console.error('dispatch failed:', e.message));
     }
@@ -154,9 +171,16 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
     const parsed = alertBody.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return bad(c, 'invalid body');
     const account = c.get('account');
-    if (!sendLimit(account)) return bad(c, 'rate limited', 429);
+    if (!sendLimit(account) || (parsed.data.kind === 'intro' && !introLimit(account))) return bad(c, 'rate limited', 429);
     const result = await createAlert(account, parsed.data);
     return result ? c.json(result) : bad(c, 'invalid body');
+  });
+
+  // A credential for the widget that can do one thing: send the saved alert. Rotated on every call.
+  app.post('/v1/quick-token', async (c) => {
+    const secret = randomBytes(24).toString('base64url');
+    await db.query('UPDATE accounts SET quick_hash = $1 WHERE id = $2', [hash(secret), c.get('account')]);
+    return c.json({ token: `${c.get('account')}.${secret}` });
   });
 
   // Saved contacts and message, so a widget can fire an alert with only an id and a location.
@@ -219,7 +243,12 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
        RETURNING account_id, payload`, account ? [id, account] : [id]);
     if (!rows[0]) return null;
     const payload = JSON.parse(rows[0].payload);
-    return createAlert(rows[0].account_id, { ...payload, id, kind: 'checkin', duress });
+    try {
+      return await createAlert(rows[0].account_id, { ...payload, id, kind: 'checkin', duress });
+    } catch (err) {
+      await db.query(`UPDATE checkins SET state = 'armed' WHERE id = $1`, [id]); // the next sweep retries; sends are idempotent
+      throw err;
+    }
   }
 
   /** Fires every armed check-in that has come due. Run on an interval. */
@@ -250,9 +279,10 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
     const id = c.req.param('id');
     const { rows } = await db.query('SELECT 1 FROM alerts WHERE id = $1 AND account_id = $2', [id, c.get('account')]);
     if (!rows[0]) return bad(c, 'not found', 404);
+    if (!safeLimit(c.get('account'))) return bad(c, 'rate limited', 429);
     await db.query(`UPDATE alerts SET status = 'safe' WHERE id = $1`, [id]);
-    await db.query(`UPDATE recipients SET status = 'pending' WHERE alert_id = $1`, [id]);
-    await fanOut(id, parsed.data.message);
+    await db.query(`UPDATE recipients SET safe_status = 'pending' WHERE alert_id = $1 AND safe_status IN ('none', 'failed')`, [id]);
+    await fanOut(id, parsed.data.message, true);
     return c.json({ recipients: await recipientsOf(id) });
   });
 
@@ -283,12 +313,15 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
   app.post('/hooks/twilio', async (c) => {
     const params = Object.fromEntries(new URLSearchParams(await c.req.text()));
     const { token } = config.twilio;
-    if (!token || c.req.header('x-twilio-signature') !== twilioSignature(token, `${config.publicUrl}/hooks/twilio`, params)) {
-      return c.json({ error: 'forbidden' }, 403);
-    }
+    const given = Buffer.from(c.req.header('x-twilio-signature') ?? '');
+    const expected = Buffer.from(token ? twilioSignature(token, `${config.publicUrl}/hooks/twilio`, params) : '');
+    if (!token || given.length !== expected.length || !timingSafeEqual(given, expected)) return c.json({ error: 'forbidden' }, 403);
     const status = params.MessageStatus === 'delivered' ? 'delivered'
       : ['failed', 'undelivered'].includes(params.MessageStatus) ? 'failed' : null;
-    if (status) await db.query('UPDATE recipients SET status = $1, updated_at = now() WHERE provider_id = $2', [status, params.MessageSid]);
+    if (status) {
+      await db.query('UPDATE recipients SET status = $1, updated_at = now() WHERE provider_id = $2', [status, params.MessageSid]);
+      await db.query('UPDATE recipients SET safe_status = $1, updated_at = now() WHERE safe_id = $2', [status, params.MessageSid]);
+    }
     return c.body(null, 204);
   });
 

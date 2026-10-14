@@ -15,8 +15,9 @@ What exists, what you must supply, and what is not built yet.
 - [ ] **Journal key**: generate with `openssl rand -base64 32` and set `JOURNAL_KEY` on the primary server. Back it up; losing it makes journal entries unreadable.
 - [ ] **Twilio**: account SID, auth token, a dedicated sending number. For US texting, register the brand and campaign (A2P 10DLC) or messages get filtered. Set the status callback to `PUBLIC_URL/hooks/twilio` (the server sets it per message).
 - [ ] **Telnyx** (or swap in another provider in `server/src/sms.ts`): API key and number for the SMS fallback.
+- [ ] **Proxy setting**: if the servers sit behind a proxy or load balancer you control, set `TRUST_PROXY=true` so rate limits use the real client address (leave it false otherwise).
 - [ ] **Two hosting providers** (for example Linode and a second cloud), each with its own Postgres, TLS domain, and `PUBLIC_URL`. Put both URLs in `app/.env`.
-- [ ] **Noonlight** (or similar) if the 911 dispatch option ships: partnership terms, pricing, API token. `server/src/dispatch.ts` is a generic placeholder; replace the payload with the partner's real one. Dispatch partners also need a name and phone for the person, which conflicts with the minimal-data policy, so decide how to handle that.
+- [ ] **Noonlight** (or similar) if the 911 dispatch option ships (the Dispatch choice stays hidden in the app until `EXPO_PUBLIC_DISPATCH_ENABLED=true`): partnership terms, pricing, API token. `server/src/dispatch.ts` is a generic placeholder; replace the payload with the partner's real one. Dispatch partners also need a name and phone for the person, which conflicts with the minimal-data policy, so decide how to handle that.
 - [ ] **Apple team ID**: replace `REPLACE_WITH_TEAM_ID` in `app/app.json`. The App Group `group.com.example.skyline` (app.json, `app/targets/widget/Shared.swift`, `app/src/config.ts`) must be renamed with the bundle ID and enabled in the Apple Developer portal.
 - [ ] **Apple Developer** and **Google Play** accounts, final bundle ID / package name (currently `com.example.skyline`), EAS or local signing setup.
 - [ ] **Uptime monitoring** pinging `/health` on both servers every minute.
@@ -56,7 +57,7 @@ What exists, what you must supply, and what is not built yet.
 - Android needs a visible notification for background location. It is worded as a weather update (`app/src/location.ts`), but it exists.
 - If the app is backgrounded during a hold countdown, the alert sends immediately rather than waiting.
 - Expo Go cannot run this app; it needs a development build for background location.
-- Abuse protection on the server is a per-instance in-memory rate limit. Add device attestation (App Attest / Play Integrity) before public launch so the SMS endpoint cannot be used to text arbitrary numbers.
+- Abuse protection on the server is per-instance in-memory rate limits (per client address, per account, and tighter limits on intro and "I'm safe" texts); the widget has its own token that can only send the saved alert. Add device attestation (App Attest / Play Integrity) before public launch so the SMS endpoint cannot be used to text arbitrary numbers.
 - Any app or web page can open `skyline://alert` and trigger an alert. Consider a per-install secret in the URL.
 - PINs are 6 digits, salted and hashed, stored in the device keystore (not backed up or migrated). The server holds contact numbers and the trail for the retention window.
 - Device testing: nothing has run on a phone yet. Logic, types, and bundling are verified; the real-device flows (permissions, Messages composer, background location) need hands-on testing, per the plan's pilot phase.

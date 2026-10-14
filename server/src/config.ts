@@ -8,6 +8,7 @@ export function loadConfig() {
     twilio: { sid: env.TWILIO_ACCOUNT_SID, token: env.TWILIO_AUTH_TOKEN, from: env.TWILIO_FROM },
     telnyx: { key: env.TELNYX_API_KEY, from: env.TELNYX_FROM },
     dispatch: { url: env.DISPATCH_URL, token: env.DISPATCH_TOKEN },
+    trustProxy: env.TRUST_PROXY === 'true',
     journalKey: env.JOURNAL_KEY,
     retentionDays: Number(env.RETENTION_DAYS ?? 30),
     liveWindowHours: Number(env.LIVE_WINDOW_HOURS ?? 2),

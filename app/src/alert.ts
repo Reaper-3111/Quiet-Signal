@@ -88,16 +88,21 @@ export async function armCheckin(env: Env, settings: Settings, dueAt: Date): Pro
   return sent ? { id, server: sent.server, dueAt: body.dueAt } : null;
 }
 
+/**
+ * Cancels on every server: an earlier attempt that timed out may still have armed the
+ * check-in there, and it would fire at the deadline.
+ */
 export async function cancelCheckin(env: Env, ci: Checkin) {
-  const token = await env.token(ci.server);
-  for (let i = 0; i < 2; i++) {
-    try {
-      await env.post(ci.server, `/v1/checkins/${ci.id}/cancel`, token, {}, env.timeoutMs);
-      return;
-    } catch {
-      // retry once
+  await Promise.all(env.servers.map(async (server) => {
+    for (let i = 0; i < 2; i++) {
+      try {
+        await env.post(server, `/v1/checkins/${ci.id}/cancel`, await env.token(server), {}, env.timeoutMs);
+        return;
+      } catch {
+        // retry once
+      }
     }
-  }
+  }));
 }
 
 /** Duress during a check-in: pretend to cancel, but fire now with the forced flag. */
@@ -107,4 +112,5 @@ export async function fireCheckinDuress(env: Env, settings: Settings, ci: Checki
   } catch {
     await fireAlert(env, settings, 'checkin', true);
   }
+  await cancelCheckin(env, ci); // nothing is left armed to fire a second time
 }

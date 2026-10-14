@@ -8,6 +8,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS accounts (
      id text PRIMARY KEY,
      secret_hash text NOT NULL,
+     quick_hash text,
      created_at timestamptz NOT NULL DEFAULT now()
    )`,
   `CREATE TABLE IF NOT EXISTS alerts (
@@ -25,6 +26,8 @@ const SCHEMA = [
      phone text NOT NULL,
      status text NOT NULL DEFAULT 'pending',
      provider_id text,
+     safe_status text NOT NULL DEFAULT 'none',
+     safe_id text,
      updated_at timestamptz NOT NULL DEFAULT now()
    )`,
   `CREATE TABLE IF NOT EXISTS points (

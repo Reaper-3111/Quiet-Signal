@@ -87,7 +87,11 @@ export default function App() {
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') return retryQueue().then(syncWidgets);
       if (guard.systemDialog) return;
-      if (screenRef.current === 'countdown') fire('hold');
+      // 'inactive' also covers Control Center and call banners; only a real background send the alert.
+      if (screenRef.current === 'countdown') {
+        if (next === 'background') { fire('hold'); setScreen('decoy'); }
+        return;
+      }
       if (screenRef.current !== 'decoy') setScreen('decoy');
     });
     return () => sub.remove();
@@ -130,7 +134,7 @@ export default function App() {
   };
 
   const onHoldRelease = () => {
-    if (settings.cancelHold) setScreen('countdown');
+    if (settings.cancelHold) { setLeft(COUNTDOWN_SECONDS); setScreen('countdown'); }
     else { fire('hold'); exit(); }
   };
 

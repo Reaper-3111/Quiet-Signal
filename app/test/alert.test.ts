@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { deliver, fireAlert, flushQueue, type Env } from '../src/alert';
+import { cancelCheckin, deliver, fireAlert, fireCheckinDuress, flushQueue, type Env } from '../src/alert';
 import { defaultTemplate, normalizePhone, renderLocal } from '../src/message';
 import type { AlertRecord, Settings } from '../src/types';
 
@@ -81,6 +81,28 @@ describe('alert delivery chain', () => {
     assert.equal(done[0].server, 'B');
     assert.ok(!calls.some((c) => c.startsWith('sms') || c === '911'));
     assert.equal((await deliver(makeEnv({ down: ['A', 'B'] }).env, rec, false)).via, 'queued');
+  });
+});
+
+describe('check-in cancel', () => {
+  const ci = { id: 'c1', server: 'A', dueAt: '' };
+
+  it('cancels on every server, since a slow first attempt may have armed both', async () => {
+    const { env, calls } = makeEnv();
+    await cancelCheckin(env, ci);
+    assert.deepEqual([...calls].sort(), ['A', 'B']);
+  });
+
+  it('duress fires, then cancels everywhere so nothing fires twice', async () => {
+    const { env, calls } = makeEnv();
+    await fireCheckinDuress(env, settings, ci);
+    assert.deepEqual(calls, ['A', 'A', 'B']);
+  });
+
+  it('duress falls back to a local forced alert when the server is down', async () => {
+    const { env, saved } = makeEnv({ down: ['A', 'B'] });
+    await fireCheckinDuress(env, settings, ci);
+    assert.equal(saved[0].payload.duress, true);
   });
 });
 

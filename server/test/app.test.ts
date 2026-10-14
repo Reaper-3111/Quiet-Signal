@@ -120,15 +120,22 @@ describe('live location', () => {
 });
 
 describe('quick alert from a saved profile', () => {
-  it('sends using the saved contacts and message', async () => {
-    assert.equal((await call('/v1/alerts/quick', { id: randomUUID() })).status, 404);
-    await app.request('/v1/profile', { method: 'PUT', headers: { 'content-type': 'application/json', ...auth },
-      body: JSON.stringify({ template: TEMPLATE, contacts: [contacts[0]], dispatch: false }) });
+  const put = (path: string, body: unknown) => app.request(path, { method: 'PUT', headers: { 'content-type': 'application/json', ...auth }, body: JSON.stringify(body) });
+
+  it('sends using the saved contacts with a token that can do nothing else', async () => {
+    const { token } = (await (await call('/v1/quick-token', {})).json()) as any;
+    const quick = { authorization: `Bearer ${token}` };
+    assert.equal((await call('/v1/alerts/quick', { id: randomUUID() }, quick)).status, 404); // no profile yet
+    await put('/v1/profile', { template: TEMPLATE, contacts: [contacts[0]], dispatch: false });
+
     sent.length = 0;
-    const res = await call('/v1/alerts/quick', { id: randomUUID(), loc: { lat: 1, lng: 2, address: 'A St' } });
+    const res = await call('/v1/alerts/quick', { id: randomUUID(), loc: { lat: 1, lng: 2, address: 'A St' } }, quick);
     assert.equal(res.status, 200);
-    assert.equal(sent.length, 1);
     assert.match(sent[0].body, /A St/);
+
+    assert.equal((await call('/v1/alerts/quick', { id: randomUUID() })).status, 401); // main token refused
+    assert.equal((await call('/v1/journal', undefined, quick)).status, 401);
+    assert.equal((await call('/v1/alerts', { id: randomUUID(), kind: 'instant', template: 'x', contacts: [contacts[0]] }, quick)).status, 401);
   });
 });
 
@@ -195,6 +202,48 @@ describe('evidence journal', () => {
     await call('/v1/journal', { id, kind: 'note', text: 'x' });
     await app.request(`/v1/journal/${id}`, { method: 'DELETE', headers: auth });
     assert.equal((await db.query('SELECT 1 FROM journal WHERE id = $1', [id])).rows.length, 0);
+  });
+});
+
+describe('hardening', () => {
+  it('rejects oversized request bodies', async () => {
+    const res = await app.request('/v1/alerts', {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth },
+      body: JSON.stringify({ id: randomUUID(), kind: 'instant', template: 'x'.repeat(70_000), contacts: [contacts[0]] }),
+    });
+    assert.equal(res.status, 413);
+  });
+
+  it('keeps the alert receipts when the safe message is sent', async () => {
+    const id = randomUUID();
+    await call('/v1/alerts', { id, kind: 'instant', template: TEMPLATE, contacts: [contacts[0]] });
+    await db.query(`UPDATE recipients SET status = 'delivered' WHERE alert_id = $1`, [id]);
+    await call(`/v1/alerts/${id}/safe`, { message: 'I am safe.' });
+    const { recipients } = (await (await call(`/v1/alerts/${id}`)).json()) as any;
+    assert.deepEqual([recipients[0].status, recipients[0].safe_status], ['delivered', 'sent']);
+  });
+
+  it('limits intro texts per account', async () => {
+    const other = await (await app.request('/v1/register', { method: 'POST' })).json() as any;
+    const h = { authorization: `Bearer ${other.token}` };
+    const intro = () => call('/v1/alerts', { id: randomUUID(), kind: 'intro', template: 'Hi', contacts: [contacts[0]] }, h);
+    for (let i = 0; i < 5; i++) assert.equal((await intro()).status, 200);
+    assert.equal((await intro()).status, 429);
+  });
+
+  it('re-arms a check-in if sending fails so the next sweep retries', async () => {
+    const id = randomUUID();
+    await call('/v1/checkins', { id, dueAt: new Date(Date.now() - 1000).toISOString(), template: TEMPLATE, contacts: [contacts[0]] });
+    const real = db.query.bind(db);
+    let broke = true;
+    (db as any).query = (sql: string, params?: unknown[]) =>
+      broke && sql.startsWith('INSERT INTO alerts') ? Promise.reject(new Error('db down')) : real(sql, params);
+    await sweep();
+    broke = false;
+    (db as any).query = real;
+    sent.length = 0;
+    await sweep();
+    assert.equal(sent.length, 1);
   });
 });
 
