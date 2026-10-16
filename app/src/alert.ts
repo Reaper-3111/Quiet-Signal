@@ -15,16 +15,21 @@ export interface Env {
   compose(contacts: string[], text: string): Promise<boolean>;
   dial911(): Promise<void>;
   save(record: AlertRecord): Promise<void>;
+  /** A server answered 410: this phone was remote-wiped. Clears the app. */
+  wiped(): Promise<void>;
 }
 
-/** Tries each server in order; returns the first that answers. */
+/**
+ * Tries each server in order; returns the first that answers. A 410 means the phone was wiped from
+ * the web page: clear the app and stop, so no fallback reveals the contacts or the message.
+ */
 async function trySend<T>(env: Env, path: string, body: unknown) {
   for (const server of env.servers) {
     try {
       const res: T = await env.post(server, path, await env.token(server), body, env.timeoutMs);
       return { server, res };
-    } catch {
-      // next server
+    } catch (e) {
+      if ((e as Error).message === '410') { await env.wiped(); return 'wiped' as const; }
     }
   }
   return null;
@@ -37,6 +42,7 @@ async function trySend<T>(env: Env, path: string, body: unknown) {
  */
 export async function deliver(env: Env, rec: AlertRecord, withFallbacks = true) {
   const sent = await trySend(env, '/v1/alerts', rec.payload);
+  if (sent === 'wiped') return { via: 'wiped' as const };
   if (sent) {
     await env.save({ ...rec, state: 'sent', server: sent.server });
     return { via: 'server' as const, server: sent.server };
@@ -64,7 +70,7 @@ export async function fireAlert(env: Env, settings: Settings, kind: Kind, duress
   const rec: AlertRecord = { id: payload.id, at: env.now().toISOString(), payload, state: 'queued' };
   await env.save(rec); // written before any network call
   const out = await deliver(env, rec, kind !== 'intro');
-  if (real && settings.call911 === 'dialer' && out.via !== 'dialer') await env.dial911();
+  if (real && settings.call911 === 'dialer' && out.via !== 'dialer' && out.via !== 'wiped') await env.dial911();
   return { ...out, id: payload.id };
 }
 
@@ -74,6 +80,7 @@ export async function flushQueue(env: Env, alerts: AlertRecord[]) {
   const cutoff = env.now().getTime() - 24 * 3600_000; // an old alert sent late would only confuse contacts
   for (const rec of alerts.filter((a) => a.state === 'queued' && new Date(a.at).getTime() > cutoff)) {
     const out = await deliver(env, rec, false);
+    if (out.via === 'wiped') break;
     if (out.via === 'server') done.push({ rec, server: out.server });
   }
   return done;
@@ -85,7 +92,7 @@ export async function armCheckin(env: Env, settings: Settings, dueAt: Date): Pro
   const loc = await env.locate();
   const body = { id, dueAt: dueAt.toISOString(), template: settings.template, contacts: settings.contacts, dispatch: settings.call911 === 'dispatch', loc };
   const sent = await trySend(env, '/v1/checkins', body);
-  return sent ? { id, server: sent.server, dueAt: body.dueAt } : null;
+  return sent && sent !== 'wiped' ? { id, server: sent.server, dueAt: body.dueAt } : null;
 }
 
 /**

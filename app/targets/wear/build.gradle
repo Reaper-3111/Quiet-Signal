@@ -1,0 +1,23 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+// Wear OS tile app. Built by `npx expo prebuild` + Gradle via plugins/withWearOS.js.
+android {
+  namespace 'com.quietsignal.wear'
+  compileSdk rootProject.ext.compileSdkVersion
+
+  defaultConfig {
+    applicationId findProperty('wearApplicationId') ?: 'com.example.skyline'
+    minSdk 30
+    targetSdk rootProject.ext.targetSdkVersion
+    versionCode 1
+    versionName '1.0'
+  }
+}
+
+dependencies {
+  implementation 'androidx.wear.tiles:tiles:1.4.1'
+  implementation 'androidx.wear.protolayout:protolayout:1.2.1'
+  implementation 'com.google.android.gms:play-services-wearable:19.0.0'
+  implementation 'com.google.guava:guava:33.3.1-android'
+}

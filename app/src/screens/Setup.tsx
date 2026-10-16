@@ -1,12 +1,14 @@
 import * as Location from 'expo-location';
 import { useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
-import { DISPATCH_ENABLED } from '../config';
+import { Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { DISPATCH_ENABLED, SERVERS } from '../config';
 import { guard } from '../guard';
+import { ICONS, iconsSupported, setIcon } from '../icons';
 import { defaultTemplate, normalizePhone } from '../message';
 import { hashPin } from '../pin';
 import { colors, ui } from '../theme';
 import type { Settings } from '../types';
+import { newWipeCode } from '../wipe';
 import { PinPad } from './PinPad';
 
 type Step = 'welcome' | 'pin' | 'pin2' | 'duress' | 'duress2' | 'contacts' | 'message' | 'options' | 'finish';
@@ -29,6 +31,7 @@ export function Setup({ settings, onSave, onTest, onDone }: Props) {
   const [phones, setPhones] = useState([...settings.contacts, '', '', '', '', ''].slice(0, 5));
   const [error, setError] = useState('');
   const [tested, setTested] = useState(false);
+  const [wipeCode, setWipeCode] = useState('');
   const step = steps[i];
   const next = () => { setError(''); setI(i + 1); };
   const patch = (p: Partial<Settings>) => setDraft((d) => ({ ...d, ...p }));
@@ -61,9 +64,25 @@ export function Setup({ settings, onSave, onTest, onDone }: Props) {
     }
   };
 
+  const getWipeCode = async () => {
+    setError('');
+    try {
+      const { code, everyServer } = await newWipeCode();
+      setWipeCode(everyServer ? code : `${code}\n(One server could not be reached; get a new code later so both have it.)`);
+    } catch {
+      setError('Could not reach the server. Try again with signal.');
+    }
+  };
+
   const finish = async () => {
     await onSave({ ...draft, setupDone: true }, !settings.setupDone || draft.contacts.join() !== settings.contacts.join());
     setTested(true);
+    // Last, after everything is saved and sent: Android can close the app when the icon changes.
+    if (draft.icon !== settings.icon) {
+      guard.systemDialog = true; // iOS confirms the change with a system alert
+      await setIcon(draft.icon).catch(() => {});
+      guard.systemDialog = false;
+    }
   };
 
   if (step === 'pin' || step === 'pin2' || step === 'duress' || step === 'duress2') {
@@ -119,6 +138,40 @@ export function Setup({ settings, onSave, onTest, onDone }: Props) {
           <View style={ui.row}><Text style={{ color: colors.text }}>PIN can cancel check-in timer</Text><Switch value={draft.cancelCheckin} onValueChange={(v) => patch({ cancelCheckin: v })} /></View>
           <View style={ui.row}><Text style={{ color: colors.text }}>Record audio during an alert</Text><Switch value={draft.recordAudio} onValueChange={(v) => patch({ recordAudio: v })} /></View>
           {draft.recordAudio ? <Text style={ui.p}>Some states require everyone's consent to record a conversation. You decide whether to use this. Audio is uploaded and not kept on the phone.</Text> : null}
+          <View style={ui.row}><Text style={{ color: colors.text }}>Show a sign when an alert is delivered</Text><Switch value={draft.cue !== 'off'} onValueChange={(v) => patch({ cue: v ? 'icon' : 'off' })} /></View>
+          {draft.cue !== 'off' ? (
+            <>
+              <Text style={ui.p}>Off by default: nothing on screen changes. With this on, after a server takes a real alert the weather icon moves to the other side of the description (until you mark yourself safe, up to 2 hours), or the phone vibrates twice. Anyone who knows the sign can read it too.</Text>
+              {(['icon', 'vibrate'] as const).map((o) => (
+                <Pressable key={o} style={[ui.btn, draft.cue === o ? null : ui.btnAlt, { marginTop: 6, padding: 12 }]} onPress={() => patch({ cue: o })}>
+                  <Text style={ui.btnText}>{o === 'icon' ? 'Weather icon moves' : 'Vibrate'}</Text>
+                </Pressable>
+              ))}
+            </>
+          ) : null}
+          {iconsSupported ? (
+            <>
+              <Text style={ui.label}>App icon</Text>
+              <Text style={ui.p}>Changes the icon on your home screen; the name stays the same.{Platform.OS === 'android' ? ' The app may close when it changes, and home screen shortcuts to it may need re-adding.' : ''}</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {ICONS.map((o) => (
+                  <Pressable key={o.label} style={[ui.btn, draft.icon === o.name ? null : ui.btnAlt, { marginTop: 0, padding: 10 }]} onPress={() => patch({ icon: o.name })}>
+                    <Text style={ui.btnText}>{o.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
+          {settings.setupDone ? (
+            <>
+              <Text style={ui.label}>Remote wipe</Text>
+              <Text style={ui.p}>If this phone is taken, enter the code at {SERVERS[0] ?? 'the server'}/wipe from any device to clear this app. Write the code down somewhere safe or give it to an advocate. It is shown only once; a new code replaces the old one.</Text>
+              {wipeCode ? <Text selectable style={[ui.input, { fontSize: 20, letterSpacing: 2 }]}>{wipeCode}</Text> : null}
+              <Pressable style={[ui.btn, ui.btnAlt]} onPress={getWipeCode}>
+                <Text style={ui.btnText}>{settings.wipeSet || wipeCode ? 'Get a new wipe code' : 'Get remote wipe code'}</Text>
+              </Pressable>
+            </>
+          ) : null}
           {settings.setupDone ? (
             <Pressable style={[ui.btn, ui.btnAlt]} onPress={() => { setSteps(CHANGE_PINS); setI(0); }}>
               <Text style={ui.btnText}>Change PIN and duress PIN</Text>

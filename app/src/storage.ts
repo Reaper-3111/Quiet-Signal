@@ -9,7 +9,7 @@ const OPTIONS = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY
 export const emptyState = (): State => ({
   settings: {
     setupDone: false, name: '', template: defaultTemplate(''), contacts: [],
-    cancelHold: true, cancelCheckin: true, recordAudio: false, call911: 'off', tokens: {},
+    cancelHold: true, cancelCheckin: true, recordAudio: false, call911: 'off', cue: 'off', tokens: {},
   },
   alerts: [],
 });
@@ -18,7 +18,10 @@ let chain: Promise<unknown> = Promise.resolve();
 
 export async function load(): Promise<State> {
   const raw = await SecureStore.getItemAsync(KEY, OPTIONS).catch(() => null);
-  return raw ? { ...emptyState(), ...JSON.parse(raw) } : emptyState();
+  if (!raw) return emptyState();
+  const s = JSON.parse(raw);
+  const e = emptyState();
+  return { ...e, ...s, settings: { ...e.settings, ...s.settings } }; // settings added in later versions get defaults
 }
 
 /** Serialized read-modify-write so concurrent updates (UI, queue, location task) do not clobber each other. */

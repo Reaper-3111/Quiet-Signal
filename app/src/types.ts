@@ -22,6 +22,12 @@ export interface Settings {
   cancelCheckin: boolean;
   recordAudio: boolean;
   call911: 'off' | 'dialer' | 'dispatch';
+  /** Opt-in sign that a server took an alert: 'icon' moves the decoy's weather icon, 'vibrate' buzzes once. */
+  cue: 'off' | 'icon' | 'vibrate';
+  /** Alternate decoy icon, or undefined for the default. */
+  icon?: string;
+  /** A remote wipe code has been registered (the code itself is never stored). */
+  wipeSet?: boolean;
   /** Server base URL -> bearer token. */
   tokens: Record<string, string>;
 }

@@ -4,17 +4,21 @@ import * as SMS from 'expo-sms';
 import { Accelerometer } from 'expo-sensors';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, View } from 'react-native';
+import { AppState, Vibration, View } from 'react-native';
 import { stopRecording } from './src/audio';
 import { armCheckin, cancelCheckin, fireAlert, fireCheckinDuress, flushQueue } from './src/alert';
 import { env, postJson } from './src/api';
+import { registerBackgroundRetry } from './src/background';
+import { resetIconIfWiped } from './src/icons';
 import { COUNTDOWN_SECONDS } from './src/config';
+import { VIBRATION, cueActive } from './src/cue';
 import { isReal, sendAlert } from './src/fire';
 import { guard } from './src/guard';
 import { startLive, stopLive } from './src/location';
 import { drainWidgetQueue, syncWidgets } from './src/widgets';
 import { classify } from './src/pin';
 import { emptyState, load, update } from './src/storage';
+import { checkWipe } from './src/wipe';
 import { Checkin } from './src/screens/Checkin';
 import { Decoy } from './src/screens/Decoy';
 import { FakeCallSetup, IncomingCall } from './src/screens/FakeCall';
@@ -26,11 +30,12 @@ import { Home } from './src/screens/Home';
 import { PinPad } from './src/screens/PinPad';
 import { Setup } from './src/screens/Setup';
 import { Status } from './src/screens/Status';
+import { Triggers } from './src/screens/Triggers';
 import { ui } from './src/theme';
 import type { AlertRecord, Kind, Settings, State } from './src/types';
 
-type Screen = 'decoy' | 'pin' | 'home' | 'hold' | 'countdown' | 'checkin' | 'status' | 'setup' | 'journal' | 'resources' | 'plan' | 'fakecall' | 'call';
-const REAL: Screen[] = ['home', 'checkin', 'status', 'setup', 'journal', 'resources', 'plan', 'fakecall'];
+type Screen = 'decoy' | 'pin' | 'home' | 'hold' | 'countdown' | 'checkin' | 'status' | 'setup' | 'journal' | 'resources' | 'plan' | 'fakecall' | 'call' | 'triggers';
+const REAL: Screen[] = ['home', 'checkin', 'status', 'setup', 'journal', 'resources', 'plan', 'fakecall', 'triggers'];
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('decoy');
@@ -46,16 +51,36 @@ export default function App() {
   const refresh = useCallback(() => load().then(setState), []);
 
   const fire = useCallback(async (kind: Kind, duress = false) => {
-    await sendAlert(kind, duress);
+    const out = await sendAlert(kind, duress);
+    if (out?.via === 'wiped') setScreen('decoy');
     refresh();
   }, [refresh]);
 
   const retryQueue = useCallback(async () => {
     await drainWidgetQueue();
-    const done = await flushQueue(env, (await load()).alerts);
-    if (done.some((d) => isReal(d.rec.payload.kind))) startLive().catch(() => {});
+    const { alerts, settings: s } = await load();
+    const done = await flushQueue(env, alerts);
+    if (done.some((d) => isReal(d.rec.payload.kind))) {
+      startLive().catch(() => {});
+      if (s.cue === 'vibrate') Vibration.vibrate(VIBRATION);
+    }
     if (done.length) refresh();
   }, [refresh]);
+
+  /** Remote wipe from the web page: returns true (and shows a fresh decoy) if this phone was wiped. */
+  const wipeCheck = useCallback(async () => {
+    const wiped = await checkWipe().catch(() => false);
+    if (wiped) { setState(emptyState()); setScreen('decoy'); }
+    return wiped;
+  }, []);
+
+  /** Runs on start-up and whenever the app comes back to the foreground. */
+  const resume = useCallback(async () => {
+    if (await wipeCheck()) return;
+    resetIconIfWiped((await load()).settings.setupDone).catch(() => {});
+    await retryQueue();
+    await syncWidgets();
+  }, [wipeCheck, retryQueue]);
 
   // Fake call: rings only while the app stays open, since notifications are never used.
   useEffect(() => {
@@ -68,24 +93,26 @@ export default function App() {
 
   // Start-up, retry loop, and deep links from widgets and shortcuts.
   useEffect(() => {
-    refresh().then(retryQueue).then(syncWidgets);
+    refresh().then(resume);
+    registerBackgroundRetry().catch(() => {});
     const timer = setInterval(retryQueue, 30_000);
     const handle = ({ url }: { url: string }) => {
       const { hostname, path } = Linking.parse(url);
       const target = hostname || path;
       if (target === 'alert') fire('instant');
+      if (target === 'test') fire('test'); // lets the shortcut walkthrough be tried safely
       if (target === 'hold') load().then((s) => { if (s.settings.setupDone) { setHoldFromHome(false); setScreen('hold'); } });
     };
     Linking.getInitialURL().then((url: string | null) => url && handle({ url }));
     const sub = Linking.addEventListener('url', handle);
     return () => { clearInterval(timer); sub.remove(); };
-  }, [refresh, retryQueue, fire]);
+  }, [refresh, resume, retryQueue, fire]);
 
   // Leaving the app always returns to the decoy, so the app switcher never shows a real screen.
   // A hold countdown that is interrupted sends instead of stalling.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') return retryQueue().then(syncWidgets);
+      if (next === 'active') return resume();
       if (guard.systemDialog) return;
       // 'inactive' also covers Control Center and call banners; only a real background send the alert.
       if (screenRef.current === 'countdown') {
@@ -95,7 +122,7 @@ export default function App() {
       if (screenRef.current !== 'decoy') setScreen('decoy');
     });
     return () => sub.remove();
-  }, [fire, retryQueue]);
+  }, [fire, resume]);
 
   // Block screenshots and blank the Android recents tile on every non-decoy screen.
   useEffect(() => {
@@ -139,7 +166,7 @@ export default function App() {
   };
 
   const saveSettings = async (s: Settings, intros: boolean) => {
-    await update((st) => { st.settings = { ...s, tokens: st.settings.tokens }; });
+    await update((st) => { st.settings = { ...s, tokens: st.settings.tokens, wipeSet: st.settings.wipeSet }; });
     await refresh();
     if (intros) await fireAlert(env, s, 'intro');
     refresh();
@@ -195,6 +222,8 @@ export default function App() {
         return <Status alerts={state.alerts} settings={settings} onSafe={markSafe} onBack={() => setScreen('home')} />;
       case 'journal':
         return <Journal onBack={() => setScreen('home')} />;
+      case 'triggers':
+        return <Triggers onBack={() => setScreen('home')} />;
       case 'resources':
         return <Resources onBack={() => setScreen('home')} />;
       case 'plan':
@@ -207,7 +236,7 @@ export default function App() {
       case 'setup':
         return <Setup settings={settings} onSave={saveSettings} onTest={() => fire('test')} onDone={() => setScreen(settings.setupDone ? 'home' : 'decoy')} />;
       default:
-        return <Decoy onSecret={() => setScreen(settings.pin ? 'pin' : 'setup')}
+        return <Decoy onSecret={() => setScreen(settings.pin ? 'pin' : 'setup')} cue={settings.cue === 'icon' && cueActive(state.alerts)}
           onForecast={(f) => update((st) => { st.forecast = f; }).then(syncWidgets)} />;
     }
   };

@@ -6,7 +6,7 @@ import type { AlertRecord, Settings } from '../src/types';
 
 const settings: Settings = {
   setupDone: true, name: 'Sam', template: defaultTemplate('Sam'), contacts: ['+15745550100'],
-  cancelHold: true, cancelCheckin: true, recordAudio: false, call911: 'off', tokens: {},
+  cancelHold: true, cancelCheckin: true, recordAudio: false, call911: 'off', cue: 'off', tokens: {},
 };
 
 function makeEnv(over: Partial<Env> & { down?: string[]; smsOk?: boolean } = {}) {
@@ -21,6 +21,7 @@ function makeEnv(over: Partial<Env> & { down?: string[]; smsOk?: boolean } = {})
     compose: async (_c, text) => { calls.push(`sms:${text}`); return over.smsOk ?? true; },
     dial911: async () => { calls.push('911'); },
     save: async (r) => { saved.push(r); },
+    wiped: async () => { calls.push('wiped'); },
     ...over,
   };
   return { env, calls, saved };
@@ -64,6 +65,13 @@ describe('alert delivery chain', () => {
     const { env, calls } = makeEnv();
     await fireAlert(env, { ...settings, call911: 'dialer' }, 'instant');
     assert.deepEqual(calls, ['A', '911']);
+  });
+
+  it('clears the app and opens nothing when a server says the phone was wiped', async () => {
+    const { env, calls } = makeEnv({ post: async (server) => { calls.push(server); throw new Error('410'); } });
+    const out = await fireAlert(env, { ...settings, call911: 'dialer' }, 'instant');
+    assert.equal(out.via, 'wiped');
+    assert.deepEqual(calls, ['A', 'wiped']); // no second server, no Messages, no dialer
   });
 
   it('keeps intro and test alerts away from the dialer', async () => {

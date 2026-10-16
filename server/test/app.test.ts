@@ -18,7 +18,7 @@ let db: Db;
 let app: ReturnType<typeof createApp>['app'];
 let sweep: ReturnType<typeof createApp>['sweep'];
 let auth: Record<string, string>;
-const config = { ...loadConfig(), journalKey: Buffer.alloc(32, 7).toString('base64'), publicUrl: 'https://a.test', twilio: { sid: 'AC1', token: 'tok', from: '+1' } };
+const config = { ...loadConfig(), journalKey: Buffer.alloc(32, 7).toString('base64'), peerSecret: 'peer-secret', publicUrl: 'https://a.test', twilio: { sid: 'AC1', token: 'tok', from: '+1' } };
 
 const call = (path: string, body?: unknown, headers: Record<string, string> = auth) =>
   app.request(path, {
@@ -202,6 +202,57 @@ describe('evidence journal', () => {
     await call('/v1/journal', { id, kind: 'note', text: 'x' });
     await app.request(`/v1/journal/${id}`, { method: 'DELETE', headers: auth });
     assert.equal((await db.query('SELECT 1 FROM journal WHERE id = $1', [id])).rows.length, 0);
+  });
+});
+
+describe('remote wipe', () => {
+  const wipeForm = (code: string, extra: Record<string, string> = {}) =>
+    app.request('/wipe', { method: 'POST', body: new URLSearchParams({ code, ...extra }) });
+
+  it('wipes the account that registered the code, and only that one', async () => {
+    const mine = { authorization: `Bearer ${((await (await app.request('/v1/register', { method: 'POST' })).json()) as any).token}` };
+    const code = 'ABCD-EFGH-JKLM-NPQR';
+    assert.equal((await app.request('/v1/wipe-code', { method: 'PUT', headers: { ...mine, 'content-type': 'application/json' }, body: JSON.stringify({ code }) })).status, 204);
+    const entry = randomUUID();
+    await call('/v1/journal', { id: entry, kind: 'note', text: 'keep' }, mine);
+    const ci = randomUUID();
+    await call('/v1/checkins', { id: ci, dueAt: new Date(Date.now() + 60_000).toISOString(), template: TEMPLATE, contacts }, mine);
+    assert.equal((await call('/v1/ping', undefined, mine)).status, 204);
+
+    const wrong = await wipeForm('ZZZZ-ZZZZ-ZZZZ-ZZZZ');
+    assert.match(await wrong.text(), /Done/);
+    assert.equal((await call('/v1/ping', undefined, mine)).status, 204);
+
+    await wipeForm('abcd efgh jklm npqr'); // case and separators do not matter
+    assert.equal((await call('/v1/ping', undefined, mine)).status, 410);
+    assert.equal((await call('/v1/alerts', { id: randomUUID(), kind: 'instant', template: TEMPLATE, contacts }, mine)).status, 410);
+    assert.equal((await db.query(`SELECT state FROM checkins WHERE id = $1`, [ci])).rows[0].state, 'cancelled');
+    assert.equal((await db.query('SELECT 1 FROM journal WHERE id = $1', [entry])).rows.length, 1); // journal kept unless asked
+    assert.equal((await call('/v1/ping')).status, 204); // other accounts untouched
+  });
+
+  it('deletes the journal only when asked', async () => {
+    const mine = { authorization: `Bearer ${((await (await app.request('/v1/register', { method: 'POST' })).json()) as any).token}` };
+    await app.request('/v1/wipe-code', { method: 'PUT', headers: { ...mine, 'content-type': 'application/json' }, body: JSON.stringify({ code: 'QQQQ-RRRR-SSSS-TTTT' }) });
+    const entry = randomUUID();
+    await call('/v1/journal', { id: entry, kind: 'note', text: 'gone' }, mine);
+    await wipeForm('QQQQ-RRRR-SSSS-TTTT', { journal: 'on' });
+    assert.equal((await db.query('SELECT 1 FROM journal WHERE id = $1', [entry])).rows.length, 0);
+  });
+
+  it('lets forwards from the other server past the per-address limit', async () => {
+    const mine = { authorization: `Bearer ${((await (await app.request('/v1/register', { method: 'POST' })).json()) as any).token}` };
+    await app.request('/v1/wipe-code', { method: 'PUT', headers: { ...mine, 'content-type': 'application/json' }, body: JSON.stringify({ code: 'WWWW-XXXX-YYYY-ZZZZ' }) });
+    const forward = (code: string) => app.request('/wipe', { method: 'POST', headers: { 'x-wipe-peer': 'peer-secret' }, body: new URLSearchParams({ code }) });
+    for (let i = 0; i < 6; i++) await forward('ZZZZ-ZZZZ-ZZZZ-ZZZZ');
+    await forward('WWWW-XXXX-YYYY-ZZZZ');
+    assert.equal((await call('/v1/ping', undefined, mine)).status, 410);
+  });
+
+  it('serves a plain, uncached form', async () => {
+    const res = await app.request('/wipe');
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.match(await res.text(), /noindex/);
   });
 });
 

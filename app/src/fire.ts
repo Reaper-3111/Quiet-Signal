@@ -1,4 +1,6 @@
+import { Vibration } from 'react-native';
 import { fireAlert, type Env } from './alert';
+import { VIBRATION } from './cue';
 import { env } from './api';
 import { startRecording } from './audio';
 import { startLive } from './location';
@@ -13,6 +15,7 @@ export async function sendAlert(kind: Kind, duress = false, e: Env = env) {
   if (!settings.setupDone) return null;
   const out = await fireAlert(e, settings, kind, duress);
   if (out.via === 'server' && isReal(kind)) {
+    if (settings.cue === 'vibrate') Vibration.vibrate(VIBRATION);
     startLive().catch(() => {});
     if (settings.recordAudio) startRecording(out.id).catch(() => {});
   }
