@@ -9,6 +9,7 @@ import { stopRecording } from './src/audio';
 import { armCheckin, cancelCheckin, fireAlert, fireCheckinDuress, flushQueue } from './src/alert';
 import { env, postJson } from './src/api';
 import { registerBackgroundRetry } from './src/background';
+import { resetIconIfWiped } from './src/icons';
 import { COUNTDOWN_SECONDS } from './src/config';
 import { VIBRATION, cueActive } from './src/cue';
 import { isReal, sendAlert } from './src/fire';
@@ -50,7 +51,8 @@ export default function App() {
   const refresh = useCallback(() => load().then(setState), []);
 
   const fire = useCallback(async (kind: Kind, duress = false) => {
-    await sendAlert(kind, duress);
+    const out = await sendAlert(kind, duress);
+    if (out?.via === 'wiped') setScreen('decoy');
     refresh();
   }, [refresh]);
 
@@ -75,6 +77,7 @@ export default function App() {
   /** Runs on start-up and whenever the app comes back to the foreground. */
   const resume = useCallback(async () => {
     if (await wipeCheck()) return;
+    resetIconIfWiped((await load()).settings.setupDone).catch(() => {});
     await retryQueue();
     await syncWidgets();
   }, [wipeCheck, retryQueue]);

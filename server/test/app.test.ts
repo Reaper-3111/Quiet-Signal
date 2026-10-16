@@ -18,7 +18,7 @@ let db: Db;
 let app: ReturnType<typeof createApp>['app'];
 let sweep: ReturnType<typeof createApp>['sweep'];
 let auth: Record<string, string>;
-const config = { ...loadConfig(), journalKey: Buffer.alloc(32, 7).toString('base64'), publicUrl: 'https://a.test', twilio: { sid: 'AC1', token: 'tok', from: '+1' } };
+const config = { ...loadConfig(), journalKey: Buffer.alloc(32, 7).toString('base64'), peerSecret: 'peer-secret', publicUrl: 'https://a.test', twilio: { sid: 'AC1', token: 'tok', from: '+1' } };
 
 const call = (path: string, body?: unknown, headers: Record<string, string> = auth) =>
   app.request(path, {
@@ -238,6 +238,15 @@ describe('remote wipe', () => {
     await call('/v1/journal', { id: entry, kind: 'note', text: 'gone' }, mine);
     await wipeForm('QQQQ-RRRR-SSSS-TTTT', { journal: 'on' });
     assert.equal((await db.query('SELECT 1 FROM journal WHERE id = $1', [entry])).rows.length, 0);
+  });
+
+  it('lets forwards from the other server past the per-address limit', async () => {
+    const mine = { authorization: `Bearer ${((await (await app.request('/v1/register', { method: 'POST' })).json()) as any).token}` };
+    await app.request('/v1/wipe-code', { method: 'PUT', headers: { ...mine, 'content-type': 'application/json' }, body: JSON.stringify({ code: 'WWWW-XXXX-YYYY-ZZZZ' }) });
+    const forward = (code: string) => app.request('/wipe', { method: 'POST', headers: { 'x-wipe-peer': 'peer-secret' }, body: new URLSearchParams({ code }) });
+    for (let i = 0; i < 6; i++) await forward('ZZZZ-ZZZZ-ZZZZ-ZZZZ');
+    await forward('WWWW-XXXX-YYYY-ZZZZ');
+    assert.equal((await call('/v1/ping', undefined, mine)).status, 410);
   });
 
   it('serves a plain, uncached form', async () => {

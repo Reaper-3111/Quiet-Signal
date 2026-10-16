@@ -29,7 +29,7 @@ Alerts already sent stay on the servers until the normal 30 day purge, so the co
 ## Abuse and limits
 
 - The page is plain HTML with no scripts, `noindex`, and `Cache-Control: no-store`. It answers the same way whether or not the code matched, so it cannot be used to test codes.
-- Wipe attempts are limited per client address (5 an hour; forwarded attempts from a peer server get a separate, higher limit). With 80 bit codes, guessing is not practical.
+- Wipe attempts are limited per client address (5 an hour). Forwards between the servers carry `PEER_SECRET` and skip that limit, since they all come from one address. With 80 bit codes, guessing is not practical.
 - A wipe cannot be undone. The person sets the app up again from scratch.
 - If the phone never comes online again, the phone-side wipe never runs. The server side still stops anything from being sent or read with that phone's token.
 

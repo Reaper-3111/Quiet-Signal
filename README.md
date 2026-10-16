@@ -28,7 +28,7 @@ npm test
 npm run dev
 ```
 
-Deploy the same image to two providers (`Dockerfile`), each with its own Postgres, `PUBLIC_URL`, and `JOURNAL_KEY`. Set `PEER_URLS` on each to the other's URL so a remote wipe reaches both.
+Deploy the same image to two providers (`Dockerfile`), each with its own Postgres, `PUBLIC_URL`, and `JOURNAL_KEY`. Set `PEER_URLS` on each to the other's URL, and the same `PEER_SECRET` on both, so a remote wipe reaches both.
 
 ## Run the app
 

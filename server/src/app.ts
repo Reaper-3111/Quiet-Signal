@@ -102,7 +102,7 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
   mountJournal(app, db, config.journalKey);
   app.use('/v1/wipe-code', auth);
   app.use('/v1/ping', auth);
-  mountWipe(app, db, { peerUrls: config.peerUrls, limit: wipeLimit, clientIp });
+  mountWipe(app, db, { peerUrls: config.peerUrls, peerSecret: config.peerSecret, limit: wipeLimit, clientIp });
 
   async function auth(c: Context, next: () => Promise<void>) {
     const [id, secret] = (c.req.header('authorization')?.replace(/^Bearer /, '') ?? '').split('.');

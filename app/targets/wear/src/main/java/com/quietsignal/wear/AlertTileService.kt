@@ -18,20 +18,27 @@ import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 
-private const val ALERT = "radar"
+private const val ALERT = "radar-"
 
 /**
- * A weather tile. Tapping "Radar" reloads the tile with that id, and the reload sends the saved
- * alert in the background. Nothing on the tile changes.
+ * A weather tile. Tapping "Radar" reloads the tile with that button's id, and the reload sends the
+ * saved alert in the background. Nothing on the tile changes. Each render gives the button a new id
+ * and a sent id is remembered, so a routine refresh that repeats the last id cannot send twice.
  */
 class AlertTileService : TileService() {
   override fun onTileRequest(req: RequestBuilders.TileRequest): ListenableFuture<TileBuilders.Tile> {
-    if (req.currentState.lastClickableId == ALERT) Sender.send(this)
-    val p = (Store.prefs(this).getString("forecast", "") ?: "").split("|")
+    val prefs = Store.prefs(this)
+    val clicked = req.currentState.lastClickableId
+    if (clicked.startsWith(ALERT) && clicked != prefs.getString("sent", "")) {
+      prefs.edit().putString("sent", clicked).apply()
+      Sender.send(this)
+    }
+    val buttonId = ALERT + System.currentTimeMillis()
+    val p = (prefs.getString("forecast", "") ?: "").split("|")
     val radar = Box.Builder()
       .setModifiers(
         Modifiers.Builder()
-          .setClickable(Clickable.Builder().setId(ALERT).setOnClick(ActionBuilders.LoadAction.Builder().build()).build())
+          .setClickable(Clickable.Builder().setId(buttonId).setOnClick(ActionBuilders.LoadAction.Builder().build()).build())
           .setPadding(Padding.Builder().setAll(dp(8f)).build())
           .build()
       )

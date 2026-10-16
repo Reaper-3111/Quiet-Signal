@@ -41,6 +41,7 @@ export const env: Env = {
     return true;
   },
   dial911: async () => { await Linking.openURL('tel:911'); },
+  wiped: async () => (await import('./wipe')).wipeLocal(), // loaded lazily: wipe.ts depends on this file
   save: async (rec) => {
     await update((s) => {
       const i = s.alerts.findIndex((a) => a.id === rec.id);

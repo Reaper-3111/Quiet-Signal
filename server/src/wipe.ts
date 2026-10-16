@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Context, Hono } from 'hono';
 import { z } from 'zod';
 import type { Db } from './db.js';
@@ -7,7 +7,7 @@ import type { Db } from './db.js';
 export const wipeHash = (code: string) => createHash('sha256').update(code.toUpperCase().replace(/[^A-Z0-9]/g, '')).digest('hex');
 
 const codeBody = z.object({ code: z.string().regex(/^[A-Za-z0-9 -]{16,40}$/) });
-const FORWARDED = 'x-wipe-forwarded';
+const PEER = 'x-wipe-peer';
 
 const page = (msg = '') => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -28,12 +28,14 @@ ${msg ? `<p><strong>${msg}</strong></p>` : ''}
 
 interface Opts {
   peerUrls: string[];
+  /** Shared by the servers. Forwards carrying it skip the per-address limit (they all come from one address). */
+  peerSecret?: string;
   limit: (key: string) => boolean;
   clientIp: (c: Context) => string;
 }
 
 /** Remote wipe: the app registers a code, and the code alone (entered on a web page) wipes the account. See docs/remote-wipe.md. */
-export function mountWipe(app: Hono<{ Variables: { account: string } }>, db: Db, { peerUrls, limit, clientIp }: Opts) {
+export function mountWipe(app: Hono<{ Variables: { account: string } }>, db: Db, { peerUrls, peerSecret, limit, clientIp }: Opts) {
   app.put('/v1/wipe-code', async (c) => {
     const parsed = codeBody.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'invalid body' }, 400);
@@ -54,14 +56,16 @@ export function mountWipe(app: Hono<{ Variables: { account: string } }>, db: Db,
   app.post('/wipe', async (c) => {
     const form = await c.req.parseBody().catch(() => ({} as Record<string, unknown>));
     const code = typeof form.code === 'string' ? form.code : '';
-    const forwarded = !!c.req.header(FORWARDED);
-    if (!limit(`${forwarded ? 'peer' : 'ip'}:${clientIp(c)}`)) return html(c, 'Too many tries. Wait an hour and try again.');
+    const given = c.req.header(PEER);
+    const forwarded = given !== undefined; // never forwarded again, so two servers cannot loop
+    const trusted = !!peerSecret && !!given && given.length === peerSecret.length && timingSafeEqual(Buffer.from(given), Buffer.from(peerSecret));
+    if (!trusted && !limit(clientIp(c))) return html(c, 'Too many tries. Wait an hour and try again.');
     if (codeBody.safeParse({ code }).success) {
       await wipe(db, wipeHash(code), !!form.journal);
       if (!forwarded) {
         const body = new URLSearchParams({ code, ...(form.journal ? { journal: 'on' } : {}) });
         await Promise.all(peerUrls.map((u) => fetch(`${u}/wipe`, {
-          method: 'POST', body, headers: { [FORWARDED]: '1' }, signal: AbortSignal.timeout(5000),
+          method: 'POST', body, headers: { [PEER]: peerSecret ?? '' }, signal: AbortSignal.timeout(5000),
         }).catch((e) => console.error('wipe forward failed:', e.message))));
       }
     }

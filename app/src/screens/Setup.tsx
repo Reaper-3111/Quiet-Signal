@@ -75,13 +75,14 @@ export function Setup({ settings, onSave, onTest, onDone }: Props) {
   };
 
   const finish = async () => {
+    await onSave({ ...draft, setupDone: true }, !settings.setupDone || draft.contacts.join() !== settings.contacts.join());
+    setTested(true);
+    // Last, after everything is saved and sent: Android can close the app when the icon changes.
     if (draft.icon !== settings.icon) {
       guard.systemDialog = true; // iOS confirms the change with a system alert
       await setIcon(draft.icon).catch(() => {});
       guard.systemDialog = false;
     }
-    await onSave({ ...draft, setupDone: true }, !settings.setupDone || draft.contacts.join() !== settings.contacts.join());
-    setTested(true);
   };
 
   if (step === 'pin' || step === 'pin2' || step === 'duress' || step === 'duress2') {
