@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-feature android:name="android.hardware.type.watch" />
+
+  <application android:label="Skyline" android:allowBackup="false">
+    <!-- Needs the phone app: the phone sends the server config over the Data Layer. -->
+    <meta-data android:name="com.google.android.wearable.standalone" android:value="false" />
+
+    <service
+      android:name=".AlertTileService"
+      android:label="Weather"
+      android:exported="true"
+      android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+      <intent-filter>
+        <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+      </intent-filter>
+    </service>
+
+    <service android:name=".ConfigListener" android:exported="true">
+      <intent-filter>
+        <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+        <data android:scheme="wear" android:host="*" android:pathPrefix="/quiet" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

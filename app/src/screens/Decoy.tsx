@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { DEFAULT_PLACE } from '../config';
 
+const glyph = (code: number) =>
+  code === 0 ? '☀️' : code <= 3 ? '⛅' : code <= 48 ? '🌫️' : code <= 67 ? '🌧️' : code <= 77 ? '❄️' : code <= 82 ? '🌦️' : code <= 86 ? '🌨️' : '⛈️';
+
 // WMO weather codes grouped into plain descriptions.
 const describe = (code: number) =>
   code === 0 ? 'Clear' : code <= 3 ? 'Partly cloudy' : code <= 48 ? 'Fog' : code <= 57 ? 'Drizzle' : code <= 67 ? 'Rain'
@@ -41,9 +44,12 @@ async function fetchForecast(): Promise<Forecast> {
   };
 }
 
-/** A working weather screen. Five quick taps on the temperature call onSecret. */
-export function Decoy({ onSecret, footer, onForecast }: {
-  onSecret?: () => void; footer?: string; onForecast?: (f: { place: string; temp: string; summary: string }) => void;
+/**
+ * A working weather screen. Five quick taps on the temperature call onSecret. With `cue` (opt-in
+ * confirmation), the condition icon moves from after the description to before it.
+ */
+export function Decoy({ onSecret, footer, onForecast, cue }: {
+  onSecret?: () => void; footer?: string; onForecast?: (f: { place: string; temp: string; summary: string }) => void; cue?: boolean;
 }) {
   const [f, setF] = useState<Forecast | null>(null);
   const taps = useRef<number[]>([]);
@@ -68,7 +74,9 @@ export function Decoy({ onSecret, footer, onForecast }: {
         <Text onPress={tapTemp} suppressHighlighting style={{ color: '#fff', fontSize: 90, fontWeight: '200' }}>
           {f ? `${f.temp}°` : '--'}
         </Text>
-        <Text style={{ color: '#dbe9f7', fontSize: 20 }}>{f ? describe(f.code) : ' '}</Text>
+        <Text style={{ color: '#dbe9f7', fontSize: 20 }}>
+          {f ? (cue ? `${glyph(f.code)} ${describe(f.code)}` : `${describe(f.code)} ${glyph(f.code)}`) : ' '}
+        </Text>
       </View>
       <ScrollView style={{ marginTop: 30 }} contentContainerStyle={{ paddingHorizontal: 24 }}>
         {f?.days.map((d) => (

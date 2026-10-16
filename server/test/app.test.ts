@@ -205,6 +205,48 @@ describe('evidence journal', () => {
   });
 });
 
+describe('remote wipe', () => {
+  const wipeForm = (code: string, extra: Record<string, string> = {}) =>
+    app.request('/wipe', { method: 'POST', body: new URLSearchParams({ code, ...extra }) });
+
+  it('wipes the account that registered the code, and only that one', async () => {
+    const mine = { authorization: `Bearer ${((await (await app.request('/v1/register', { method: 'POST' })).json()) as any).token}` };
+    const code = 'ABCD-EFGH-JKLM-NPQR';
+    assert.equal((await app.request('/v1/wipe-code', { method: 'PUT', headers: { ...mine, 'content-type': 'application/json' }, body: JSON.stringify({ code }) })).status, 204);
+    const entry = randomUUID();
+    await call('/v1/journal', { id: entry, kind: 'note', text: 'keep' }, mine);
+    const ci = randomUUID();
+    await call('/v1/checkins', { id: ci, dueAt: new Date(Date.now() + 60_000).toISOString(), template: TEMPLATE, contacts }, mine);
+    assert.equal((await call('/v1/ping', undefined, mine)).status, 204);
+
+    const wrong = await wipeForm('ZZZZ-ZZZZ-ZZZZ-ZZZZ');
+    assert.match(await wrong.text(), /Done/);
+    assert.equal((await call('/v1/ping', undefined, mine)).status, 204);
+
+    await wipeForm('abcd efgh jklm npqr'); // case and separators do not matter
+    assert.equal((await call('/v1/ping', undefined, mine)).status, 410);
+    assert.equal((await call('/v1/alerts', { id: randomUUID(), kind: 'instant', template: TEMPLATE, contacts }, mine)).status, 410);
+    assert.equal((await db.query(`SELECT state FROM checkins WHERE id = $1`, [ci])).rows[0].state, 'cancelled');
+    assert.equal((await db.query('SELECT 1 FROM journal WHERE id = $1', [entry])).rows.length, 1); // journal kept unless asked
+    assert.equal((await call('/v1/ping')).status, 204); // other accounts untouched
+  });
+
+  it('deletes the journal only when asked', async () => {
+    const mine = { authorization: `Bearer ${((await (await app.request('/v1/register', { method: 'POST' })).json()) as any).token}` };
+    await app.request('/v1/wipe-code', { method: 'PUT', headers: { ...mine, 'content-type': 'application/json' }, body: JSON.stringify({ code: 'QQQQ-RRRR-SSSS-TTTT' }) });
+    const entry = randomUUID();
+    await call('/v1/journal', { id: entry, kind: 'note', text: 'gone' }, mine);
+    await wipeForm('QQQQ-RRRR-SSSS-TTTT', { journal: 'on' });
+    assert.equal((await db.query('SELECT 1 FROM journal WHERE id = $1', [entry])).rows.length, 0);
+  });
+
+  it('serves a plain, uncached form', async () => {
+    const res = await app.request('/wipe');
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.match(await res.text(), /noindex/);
+  });
+});
+
 describe('hardening', () => {
   it('rejects oversized request bodies', async () => {
     const res = await app.request('/v1/alerts', {

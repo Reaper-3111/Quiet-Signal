@@ -9,6 +9,8 @@ const SCHEMA = [
      id text PRIMARY KEY,
      secret_hash text NOT NULL,
      quick_hash text,
+     wipe_hash text,
+     wiped boolean NOT NULL DEFAULT false,
      created_at timestamptz NOT NULL DEFAULT now()
    )`,
   `CREATE TABLE IF NOT EXISTS alerts (
@@ -58,6 +60,10 @@ const SCHEMA = [
      dispatch boolean NOT NULL DEFAULT false,
      updated_at timestamptz NOT NULL DEFAULT now()
    )`,
+  // Columns added after the first deployment.
+  `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS wipe_hash text`,
+  `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS wiped boolean NOT NULL DEFAULT false`,
+  `CREATE INDEX IF NOT EXISTS accounts_wipe ON accounts (wipe_hash)`,
   `CREATE INDEX IF NOT EXISTS journal_account ON journal (account_id)`,
   `CREATE INDEX IF NOT EXISTS alerts_map_token ON alerts (map_token)`,
   `CREATE INDEX IF NOT EXISTS points_alert ON points (alert_id)`,

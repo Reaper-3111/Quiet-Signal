@@ -6,7 +6,7 @@ import type { AlertRecord, Settings } from '../src/types';
 
 const settings: Settings = {
   setupDone: true, name: 'Sam', template: defaultTemplate('Sam'), contacts: ['+15745550100'],
-  cancelHold: true, cancelCheckin: true, recordAudio: false, call911: 'off', tokens: {},
+  cancelHold: true, cancelCheckin: true, recordAudio: false, call911: 'off', cue: 'off', tokens: {},
 };
 
 function makeEnv(over: Partial<Env> & { down?: string[]; smsOk?: boolean } = {}) {

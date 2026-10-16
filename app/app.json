@@ -74,7 +74,38 @@
             }
           ]
         }
-      ]
+      ],
+      [
+        "expo-alternate-app-icons",
+        [
+          {
+            "name": "Sunny",
+            "ios": "./assets/icons/sunny.png",
+            "android": {
+              "foregroundImage": "./assets/icons/sunny-foreground.png",
+              "backgroundColor": "#f2992e"
+            }
+          },
+          {
+            "name": "Storm",
+            "ios": "./assets/icons/storm.png",
+            "android": {
+              "foregroundImage": "./assets/icons/storm-foreground.png",
+              "backgroundColor": "#485463"
+            }
+          },
+          {
+            "name": "Night",
+            "ios": "./assets/icons/night.png",
+            "android": {
+              "foregroundImage": "./assets/icons/night-foreground.png",
+              "backgroundColor": "#18244a"
+            }
+          }
+        ]
+      ],
+      "expo-background-task",
+      "./plugins/withWearOS"
     ]
   }
 }

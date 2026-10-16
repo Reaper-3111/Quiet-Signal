@@ -10,6 +10,7 @@ import { mountJournal } from './journal.js';
 import { mapPage } from './mapPage.js';
 import { renderMessage } from './message.js';
 import { sendSms, twilioSignature, type SmsProvider } from './sms.js';
+import { mountWipe } from './wipe.js';
 
 export interface Deps {
   config: Config;
@@ -67,6 +68,7 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
   const sendLimit = limiter(20, 3_600_000);
   const safeLimit = limiter(10, 3_600_000);
   const introLimit = limiter(5, 86_400_000);
+  const wipeLimit = limiter(5, 3_600_000);
   const tooLarge = (c: Context) => c.json({ error: 'too large' }, 413);
   const small = bodyLimit({ maxSize: 65_536, onError: tooLarge });
   const large = bodyLimit({ maxSize: 8_000_000, onError: tooLarge });
@@ -98,16 +100,20 @@ export function createApp({ config, db, sms, dispatcher }: Deps) {
   app.use('/v1/profile', auth);
   app.use('/v1/quick-token', auth);
   mountJournal(app, db, config.journalKey);
+  app.use('/v1/wipe-code', auth);
+  app.use('/v1/ping', auth);
+  mountWipe(app, db, { peerUrls: config.peerUrls, limit: wipeLimit, clientIp });
 
   async function auth(c: Context, next: () => Promise<void>) {
     const [id, secret] = (c.req.header('authorization')?.replace(/^Bearer /, '') ?? '').split('.');
     if (id && secret) {
       // The widget's token only works on /v1/alerts/quick; the main token never does.
       const col = c.req.path === '/v1/alerts/quick' ? 'quick_hash' : 'secret_hash';
-      const { rows } = await db.query<Record<string, string | null>>(`SELECT ${col} FROM accounts WHERE id = $1`, [id]);
+      const { rows } = await db.query<Record<string, string | null> & { wiped: boolean }>(`SELECT ${col}, wiped FROM accounts WHERE id = $1`, [id]);
       const a = Buffer.from(hash(secret));
       const b = Buffer.from(rows[0]?.[col] ?? '');
       if (a.length === b.length && timingSafeEqual(a, b)) {
+        if (rows[0].wiped) return c.json({ error: 'wiped' }, 410); // the app clears itself on seeing this
         c.set('account' as never, id as never);
         return next();
       }

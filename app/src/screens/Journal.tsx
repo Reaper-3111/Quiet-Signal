@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { addNote, addPhoto, exportPdf, listEntries, type Entry } from '../journal';
+import { addNote, addPhoto, exportPdf, listEntries, repairJournal, type Entry } from '../journal';
 import { colors, ui } from '../theme';
 
 export function Journal({ onBack }: { onBack: () => void }) {
@@ -10,7 +10,7 @@ export function Journal({ onBack }: { onBack: () => void }) {
   const [msg, setMsg] = useState('');
 
   const load = useCallback(() => listEntries().then(setEntries).catch(() => setMsg('Could not reach the server.')), []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); repairJournal().then(load); }, [load]);
 
   const run = async (fn: () => Promise<unknown>) => {
     setMsg('');
@@ -29,7 +29,7 @@ export function Journal({ onBack }: { onBack: () => void }) {
   return (
     <View style={ui.screen}>
       <Text style={ui.h1}>Journal</Text>
-      <Text style={ui.p}>Entries are encrypted on the server, not kept on this phone.</Text>
+      <Text style={ui.p}>Entries are encrypted on both servers, not kept on this phone.</Text>
       <TextInput style={[ui.input, { minHeight: 70 }]} multiline value={text} onChangeText={setText} placeholder="What happened?" placeholderTextColor={colors.dim} />
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Pressable style={[ui.btn, { flex: 1 }]} onPress={() => text.trim() && run(async () => { await addNote(text.trim()); setText(''); })}><Text style={ui.btnText}>Add note</Text></Pressable>

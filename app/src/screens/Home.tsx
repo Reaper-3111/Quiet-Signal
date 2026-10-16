@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { colors, ui } from '../theme';
 
-export type Target = 'hold' | 'checkin' | 'status' | 'settings' | 'journal' | 'resources' | 'plan' | 'fakecall';
+export type Target = 'hold' | 'checkin' | 'status' | 'settings' | 'journal' | 'resources' | 'plan' | 'fakecall' | 'triggers';
 
 export function Home({ onGo, onInstant, onExit }: { onGo: (t: Target) => void; onInstant: () => void; onExit: () => void }) {
   const Item = ({ label, to }: { label: string; to: Target }) => (
@@ -19,6 +19,7 @@ export function Home({ onGo, onInstant, onExit }: { onGo: (t: Target) => void; o
       <Item label="Fake call" to="fakecall" />
       <Item label="Resources" to="resources" />
       <Item label="Safety plan" to="plan" />
+      <Item label="Shortcuts and watch" to="triggers" />
       <Item label="Settings" to="settings" />
       <Text onPress={onExit} style={{ color: colors.dim, textAlign: 'center', marginTop: 32, padding: 12 }}>Exit</Text>
     </ScrollView>

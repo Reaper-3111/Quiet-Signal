@@ -10,6 +10,8 @@ export function loadConfig() {
     dispatch: { url: env.DISPATCH_URL, token: env.DISPATCH_TOKEN },
     trustProxy: env.TRUST_PROXY === 'true',
     journalKey: env.JOURNAL_KEY,
+    // The other deployment(s), so a remote wipe entered on one reaches both.
+    peerUrls: (env.PEER_URLS ?? '').split(',').map((u) => u.trim().replace(/\/$/, '')).filter(Boolean),
     retentionDays: Number(env.RETENTION_DAYS ?? 30),
     liveWindowHours: Number(env.LIVE_WINDOW_HOURS ?? 2),
   };
